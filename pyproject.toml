@@ -16,7 +16,9 @@ classifiers = [
   "Operating System :: OS Independent",
 ]
 dependencies = [
-  "mlx-whisper"
+  "mlx-whisper",
+  "PyYAML",
+  "mutagen"
 ]
 
 [project.scripts]
