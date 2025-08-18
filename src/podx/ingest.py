@@ -6,9 +6,10 @@ import shutil
 from pathlib import Path
 from datetime import datetime, date
 from typing import Optional
-
 from .config import Config, load_config
 from .whisper import get_runner
+from .progress import ConsoleProgressWriter
+import inspect
 try:  # pragma: no cover
     from mutagen import File as MutagenFile  # type: ignore
 except ModuleNotFoundError:  # pragma: no cover
@@ -93,7 +94,18 @@ def ingest_episode(
     tmp_txt = tmp_dir / "transcript.txt"
     shutil.copy2(audio, tmp_audio)
     try:
-        runner.transcribe(tmp_audio, tmp_vtt, tmp_txt, log_file)
+        # Stream progress directly from subprocess stdout if supported
+        transcribe_kwargs = {}
+        try:
+            sig = inspect.signature(runner.transcribe)
+            if "writer" in sig.parameters:
+                transcribe_kwargs["writer"] = ConsoleProgressWriter()
+            if "total_duration_sec" in sig.parameters and isinstance(duration_sec, int) and duration_sec > 0:
+                transcribe_kwargs["total_duration_sec"] = duration_sec
+        except Exception:
+            pass
+
+        runner.transcribe(tmp_audio, tmp_vtt, tmp_txt, log_file, **transcribe_kwargs)
         # Optionally persist a copy of the source audio in the episode directory
         if cfg.save_audio_copy:
             shutil.move(str(tmp_audio), episode_dir / audio.name)
