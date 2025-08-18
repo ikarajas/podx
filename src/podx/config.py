@@ -49,7 +49,7 @@ def load_config(path: Path | None = None) -> Config:
         root_dir=Path(data.get("root_dir", "./podx")),
         whisper=WhisperSettings(
             runner=whisper.get("runner", "mlx"),
-            model=whisper.get("model", "small.en"),
+            model=whisper.get("model", "mlx-community/whisper-small-mlx-q4"),
             extra_args=list(whisper.get("extra_args", [])),
         ),
         logging=LoggingSettings(
