@@ -11,16 +11,29 @@ class WhisperRunner:
 
     def transcribe(self, audio_path: Path, vtt_path: Path, txt_path: Path, log_file: Path) -> None:
         """Run whisper to produce VTT and TXT transcripts."""
-        cmd_base = ["mlx_whisper", str(audio_path), "--model", self.settings.model]
-        cmd_base.extend(self.settings.extra_args)
-        # VTT
-        cmd_vtt = cmd_base + ["--output_format", "vtt", "--output", str(vtt_path)]
+        # mlx_whisper can emit multiple formats in a single run by specifying
+        # an output directory/name and using ``--output-format all``.  The
+        # caller provides the desired VTT and TXT paths which share the same
+        # directory and stem; derive those values to pass to the CLI.
+        output_dir = vtt_path.parent
+        output_name = vtt_path.stem
+
+        cmd = [
+            "mlx_whisper",
+            str(audio_path),
+            "--model",
+            self.settings.model,
+            "--output-dir",
+            str(output_dir),
+            "--output-name",
+            output_name,
+            "--output-format",
+            "all",
+        ]
+        cmd.extend(self.settings.extra_args)
+
         with open(log_file, "a") as logf:
-            subprocess.run(cmd_vtt, check=True, stdout=logf, stderr=subprocess.STDOUT)
-        # TXT
-        cmd_txt = cmd_base + ["--output_format", "txt", "--output", str(txt_path)]
-        with open(log_file, "a") as logf:
-            subprocess.run(cmd_txt, check=True, stdout=logf, stderr=subprocess.STDOUT)
+            subprocess.run(cmd, check=True, stdout=logf, stderr=subprocess.STDOUT)
 
 
 def get_runner(settings: WhisperSettings) -> WhisperRunner:
