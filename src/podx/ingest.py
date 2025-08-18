@@ -94,7 +94,9 @@ def ingest_episode(
     shutil.copy2(audio, tmp_audio)
     try:
         runner.transcribe(tmp_audio, tmp_vtt, tmp_txt, log_file)
-        shutil.move(str(tmp_audio), episode_dir / audio.name)
+        # Optionally persist a copy of the source audio in the episode directory
+        if cfg.save_audio_copy:
+            shutil.move(str(tmp_audio), episode_dir / audio.name)
         shutil.move(str(tmp_vtt), transcript_vtt)
         shutil.move(str(tmp_txt), transcript_txt)
         shutil.rmtree(tmp_dir)

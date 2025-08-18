@@ -53,7 +53,8 @@ def test_ingest_creates_structure(tmp_path, monkeypatch):
     exit_code = main(["ingest", "--podcast", "Test Pod", "--episode", "Ep1", "--audio", str(audio)])
     assert exit_code == 0
     episode_dir = tmp_path / "root" / "Test Pod" / "2025-08-01 - Ep1"
-    assert (episode_dir / "audio.wav").exists()
+    # By default we do not keep a copy of the audio in the episode directory
+    assert not (episode_dir / "audio.wav").exists()
     assert (episode_dir / "transcript.vtt").exists()
     assert (episode_dir / "transcript.txt").exists()
     data = json.loads((episode_dir / "episode.json").read_text())
@@ -99,3 +100,27 @@ def test_ingest_bad_audio(tmp_path, monkeypatch):
     episode_dir = tmp_path / "root" / "Test Pod" / "2025-08-01 - Ep1"
     assert not (episode_dir / "transcript.vtt").exists()
     assert not (episode_dir / "episode.json").exists()
+
+
+def test_ingest_keeps_audio_when_enabled(tmp_path, monkeypatch):
+    # Enable audio copy in config
+    cfg = {
+        "root_dir": str(tmp_path / "root"),
+        "whisper": {"runner": "mlx", "model": "small.en", "extra_args": ["--language", "en"]},
+        "logging": {"level": "INFO", "file_max_mb": 5},
+        "save_audio_copy": True,
+    }
+    cfg_path = tmp_path / "config.yaml"
+    cfg_path.write_text(jsonlib.dumps(cfg))
+    monkeypatch.setenv("PODX_CONFIG", str(cfg_path))
+
+    audio = tmp_path / "audio.wav"
+    create_audio(audio)
+    monkeypatch.setattr("podx.ingest.extract_metadata", fake_metadata)
+    monkeypatch.setattr("podx.whisper.WhisperRunner.transcribe", fake_transcribe)
+    exit_code = main(["ingest", "--podcast", "Test Pod", "--episode", "Ep1", "--audio", str(audio)])
+    assert exit_code == 0
+    episode_dir = tmp_path / "root" / "Test Pod" / "2025-08-01 - Ep1"
+    assert (episode_dir / "audio.wav").exists()
+    assert (episode_dir / "transcript.vtt").exists()
+    assert (episode_dir / "transcript.txt").exists()

@@ -28,6 +28,7 @@ class Config:
     root_dir: Path
     whisper: WhisperSettings
     logging: LoggingSettings
+    save_audio_copy: bool = False
 
 
 def load_config(path: Path | None = None) -> Config:
@@ -56,4 +57,5 @@ def load_config(path: Path | None = None) -> Config:
             level=logging.get("level", "INFO"),
             file_max_mb=int(logging.get("file_max_mb", 5)),
         ),
+        save_audio_copy=bool(data.get("save_audio_copy", False)),
     )
