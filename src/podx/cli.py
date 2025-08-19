@@ -34,6 +34,21 @@ def build_parser() -> argparse.ArgumentParser:
 
     ingest_p.set_defaults(func=_ingest)
 
+    search_p = subparsers.add_parser("search", help="Search for podcasts")
+    search_p.add_argument("name", help="Podcast name to search for")
+    from .directory import search_podcasts
+
+    def _search(args: argparse.Namespace) -> int:
+        podcasts = search_podcasts(args.name)
+        for p in podcasts:
+            print(f"Podcast Name: {p.name}")
+            print(f"Feed URL: {p.feed_url}")
+            print(f"Genres: {', '.join(p.genres)}")
+            print()
+        return 0
+
+    search_p.set_defaults(func=_search)
+
     # Default action: show help when no subcommands/args are provided
     parser.set_defaults(func=lambda _args: parser.print_help())
     return parser
