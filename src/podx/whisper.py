@@ -4,7 +4,7 @@ import subprocess
 from pathlib import Path
 from typing import Optional
 from .config import WhisperSettings
-from .progress import ProgressFeeder, ProgressWriter
+from .progress import ProgressFeeder, ProgressReporter
 
 
 class WhisperRunner:
@@ -18,13 +18,13 @@ class WhisperRunner:
         txt_path: Path,
         log_file: Path,
         *,
-        writer: Optional[ProgressWriter] = None,
+        reporter: Optional[ProgressReporter] = None,
         total_duration_sec: Optional[int] = None,
     ) -> None:
         """Run whisper to produce VTT and TXT transcripts.
 
         Streams stdout line-by-line, tees to the provided log file, and optionally
-        feeds lines to a progress parser via `writer` + `total_duration_sec`.
+        feeds lines to a progress parser via ``reporter`` + ``total_duration_sec``.
         """
         # mlx_whisper can emit multiple formats in a single run by specifying
         # an output directory/name and using ``--output-format all``.  The
@@ -48,8 +48,8 @@ class WhisperRunner:
         cmd.extend(self.settings.extra_args)
 
         feeder: Optional[ProgressFeeder] = None
-        if writer is not None and total_duration_sec and total_duration_sec > 0:
-            feeder = ProgressFeeder(total_duration_sec, writer)
+        if reporter is not None and total_duration_sec and total_duration_sec > 0:
+            feeder = ProgressFeeder(total_duration_sec, reporter)
 
         # Use Popen to stream output line-by-line and tee to log
         with open(log_file, "a", encoding="utf-8", errors="ignore") as logf:

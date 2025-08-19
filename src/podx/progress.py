@@ -2,37 +2,62 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
-from typing import Optional
+from typing import Callable, Optional
 
 
 @dataclass
-class ProgressWriter:
+class ProgressReporter:
     """Strategy for emitting progress updates.
 
     Implementations should keep output concerns separate from ingestion/runner.
     """
 
-    def update(self, percent: int, current_sec: int, total_sec: int) -> None:  # pragma: no cover - simple IO
+    def on_update(self, percent: int, current_sec: int, total_sec: int) -> None:  # pragma: no cover - simple IO
         pass
 
-    def done(self) -> None:  # pragma: no cover - simple IO
+    def on_done(self) -> None:  # pragma: no cover - simple IO
         pass
 
 
-class ConsoleProgressWriter(ProgressWriter):
+class ConsoleProgressReporter(ProgressReporter):
     def __init__(self) -> None:
         self._last_printed: Optional[int] = None
 
-    def update(self, percent: int, current_sec: int, total_sec: int) -> None:  # pragma: no cover - simple IO
+    def on_update(self, percent: int, current_sec: int, total_sec: int) -> None:  # pragma: no cover - simple IO
         # Only print when percent meaningfully advances to avoid noise
         if self._last_printed is None or percent - self._last_printed >= 5 or percent in (0, 100):
             print(f"Transcribing: {percent:3d}% ({current_sec}/{total_sec}s)")
             self._last_printed = percent
 
-    def done(self) -> None:  # pragma: no cover - simple IO
+    def on_done(self) -> None:  # pragma: no cover - simple IO
         # Ensure a final newline or marker if needed
         if self._last_printed != 100:
             print("Transcribing: 100%")
+
+
+class QtProgressReporter(ProgressReporter):
+    """Placeholder reporter that emits Qt style signals.
+
+    The ``update_signal`` and ``done_signal`` callables are intended to be
+    connected to Qt ``Signal`` objects in a GUI application.  They default to
+    ``None`` so the reporter is a no-op when used outside of a Qt context.
+    """
+
+    def __init__(
+        self,
+        update_signal: Optional[Callable[[int, int, int], None]] = None,
+        done_signal: Optional[Callable[[], None]] = None,
+    ) -> None:
+        self.update_signal = update_signal
+        self.done_signal = done_signal
+
+    def on_update(self, percent: int, current_sec: int, total_sec: int) -> None:  # pragma: no cover - simple IO
+        if self.update_signal is not None:
+            self.update_signal(percent, current_sec, total_sec)
+
+    def on_done(self) -> None:  # pragma: no cover - simple IO
+        if self.done_signal is not None:
+            self.done_signal()
 
 
 _TIMECODE_RE = re.compile(
@@ -62,14 +87,14 @@ def parse_end_seconds(line: str) -> Optional[float]:
 
 
 class ProgressFeeder:
-    """Feed stdout lines to compute progress and notify a writer.
+    """Feed stdout lines to compute progress and notify a reporter.
 
     Keeps state across lines; call `consume_line` for each output line.
     """
 
-    def __init__(self, total_duration_sec: int, writer: ProgressWriter, step: int = 5) -> None:
+    def __init__(self, total_duration_sec: int, reporter: ProgressReporter, step: int = 5) -> None:
         self.total = max(0, int(total_duration_sec))
-        self.writer = writer
+        self.reporter = reporter
         self.step = max(1, int(step))
         self._last_percent = -1
         self._last_sec = 0
@@ -81,11 +106,11 @@ class ProgressFeeder:
         self._last_sec = int(end_s)
         pct = min(100, int((end_s / self.total) * 100))
         if pct > self._last_percent and (pct % self.step == 0 or pct in (0, 100)):
-            self.writer.update(pct, self._last_sec, self.total)
+            self.reporter.on_update(pct, self._last_sec, self.total)
             self._last_percent = pct
 
     def done(self) -> None:
         if self.total > 0:
             if self._last_sec >= self.total and self._last_percent < 100:
-                self.writer.update(100, self.total, self.total)
-        self.writer.done()
+                self.reporter.on_update(100, self.total, self.total)
+        self.reporter.on_done()

@@ -30,12 +30,12 @@ def build_parser() -> argparse.ArgumentParser:
 
     def _ingest(args: argparse.Namespace) -> int:
         from .services import IngestionService
-        from .progress import ConsoleProgressWriter
+        from .progress import ConsoleProgressReporter
 
         service = IngestionService()
         try:
             result = service.ingest_episode(
-                Path(args.audio), args.podcast, args.episode, args.force, ConsoleProgressWriter()
+                Path(args.audio), args.podcast, args.episode, args.force, ConsoleProgressReporter()
             )
             if result is None:
                 print("Transcript already exists, nothing to do.")
