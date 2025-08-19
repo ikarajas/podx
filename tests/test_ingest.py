@@ -7,6 +7,7 @@ import json as jsonlib
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 from podx.cli import main
+from podx.app import get_config
 
 
 def create_audio(path: Path) -> None:
@@ -46,6 +47,7 @@ def fake_transcribe(self, audio_path, vtt_path, txt_path, log_file):
 def test_ingest_creates_structure(tmp_path, monkeypatch):
     cfg = config_file(tmp_path)
     monkeypatch.setenv("PODX_CONFIG", str(cfg))
+    get_config.cache_clear()
     audio = tmp_path / "audio.wav"
     create_audio(audio)
     monkeypatch.setattr("podx.services.ingestion.extract_metadata", fake_metadata)
@@ -65,6 +67,7 @@ def test_ingest_creates_structure(tmp_path, monkeypatch):
 def test_ingest_skips_existing_transcript(tmp_path, monkeypatch, capsys):
     cfg = config_file(tmp_path)
     monkeypatch.setenv("PODX_CONFIG", str(cfg))
+    get_config.cache_clear()
     audio = tmp_path / "audio.wav"
     create_audio(audio)
     monkeypatch.setattr("podx.services.ingestion.extract_metadata", fake_metadata)
@@ -88,6 +91,7 @@ def test_ingest_skips_existing_transcript(tmp_path, monkeypatch, capsys):
 def test_ingest_bad_audio(tmp_path, monkeypatch):
     cfg = config_file(tmp_path)
     monkeypatch.setenv("PODX_CONFIG", str(cfg))
+    get_config.cache_clear()
     audio = tmp_path / "audio.wav"
     create_audio(audio)
     monkeypatch.setattr("podx.services.ingestion.extract_metadata", fake_metadata)
@@ -113,6 +117,7 @@ def test_ingest_keeps_audio_when_enabled(tmp_path, monkeypatch):
     cfg_path = tmp_path / "config.yaml"
     cfg_path.write_text(jsonlib.dumps(cfg))
     monkeypatch.setenv("PODX_CONFIG", str(cfg_path))
+    get_config.cache_clear()
 
     audio = tmp_path / "audio.wav"
     create_audio(audio)

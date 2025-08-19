@@ -8,7 +8,7 @@ import shutil
 from pathlib import Path
 from typing import Optional
 
-from ..config import Config, load_config
+from ..config import Config
 from ..progress import ProgressReporter
 from ..whisper import get_runner
 
@@ -71,8 +71,8 @@ class Episode:
 class IngestionService:
     """Service responsible for ingesting podcast episodes."""
 
-    def __init__(self, cfg: Config | None = None) -> None:
-        self.cfg = cfg or load_config()
+    def __init__(self, cfg: Config) -> None:
+        self.cfg = cfg
 
     def ingest_episode(
         self,
