@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime, date
+from concurrent.futures import Future, ThreadPoolExecutor
 import json
 import os
 import shutil
@@ -73,6 +74,41 @@ class IngestionService:
 
     def __init__(self, cfg: Config) -> None:
         self.cfg = cfg
+        self._executor: ThreadPoolExecutor | None = None
+
+    def transcribe_async(
+        self,
+        audio_path: Path,
+        vtt_path: Path,
+        txt_path: Path,
+        log_file: Path,
+        *,
+        reporter: ProgressReporter | None = None,
+        total_duration_sec: Optional[int] = None,
+    ) -> Future:
+        runner = get_runner(self.cfg.whisper)
+        return runner.transcribe_async(
+            audio_path,
+            vtt_path,
+            txt_path,
+            log_file,
+            reporter=reporter,
+            total_duration_sec=total_duration_sec,
+        )
+
+    def ingest_episode_async(
+        self,
+        audio: Path,
+        podcast: Optional[str] = None,
+        episode: Optional[str] = None,
+        force: bool = False,
+        reporter: ProgressReporter | None = None,
+    ) -> Future:
+        if self._executor is None:
+            self._executor = ThreadPoolExecutor(max_workers=1)
+        return self._executor.submit(
+            self.ingest_episode, audio, podcast, episode, force, reporter
+        )
 
     def ingest_episode(
         self,
@@ -144,7 +180,10 @@ class IngestionService:
             except Exception:  # pragma: no cover - defensive
                 pass
 
-            runner.transcribe(tmp_audio, tmp_vtt, tmp_txt, log_file, **transcribe_kwargs)
+            future = runner.transcribe_async(
+                tmp_audio, tmp_vtt, tmp_txt, log_file, **transcribe_kwargs
+            )
+            future.result()
 
             # Optionally persist a copy of the source audio in the episode directory
             if self.cfg.save_audio_copy:
