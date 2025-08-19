@@ -1,6 +1,7 @@
 # podx
 
-A minimal Python command-line tool scaffold.
+`podx` is a command‑line tool for working with podcasts.  It can transcribe
+episodes using Whisper and search online directories for new shows to follow.
 
 ## Install (editable for development)
 
@@ -10,12 +11,30 @@ source .venv/bin/activate  # On Windows: .venv\\Scripts\\activate
 pip install -e .
 ```
 
-## Usage
+## CLI Usage
 
-- Show help: `podx --help`
-- Show version: `podx --version`
+`podx` exposes two sub‑commands:
 
-You can also run as a module: `python -m podx --help`.
+* **Transcribe an episode**
+
+  ```bash
+  podx ingest --audio /path/to/file.mp3 [--podcast "Podcast"] [--episode "Title"]
+  ```
+
+* **Search for podcasts**
+
+  ```bash
+  podx search "history"
+  ```
+
+Run `podx --help` or `podx <command> --help` for full options.  The tool can
+also be invoked as a module: `python -m podx`.
+
+## Configuration
+
+Runtime configuration is read from `~/.podx/config.yaml` (or the file pointed to
+by the `PODX_CONFIG` environment variable).  See [AGENTS.md](AGENTS.md) for a
+deeper look at the project architecture and contribution guidelines.
 
 ## Project Layout
 
