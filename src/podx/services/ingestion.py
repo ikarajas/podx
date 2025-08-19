@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, date
 import json
 import os
 import shutil
@@ -11,7 +11,48 @@ from typing import Optional
 from ..config import Config, load_config
 from ..progress import ProgressWriter
 from ..whisper import get_runner
-from ..ingest import extract_metadata, _language_from_args
+
+try:  # pragma: no cover
+    from mutagen import File as MutagenFile  # type: ignore
+except ModuleNotFoundError:  # pragma: no cover
+    MutagenFile = None
+
+
+def extract_metadata(audio_path: Path) -> dict:
+    meta: dict[str, Optional[str | int]] = {
+        "podcast": None,
+        "episode_title": None,
+        "published_date": date.today().isoformat(),
+        "duration_sec": 0,
+    }
+    if MutagenFile is None:
+        return meta
+    audio = MutagenFile(audio_path, easy=True)
+    if audio is None:
+        return meta
+    tags = getattr(audio, "tags", {}) or {}
+    podcast = tags.get("album")
+    if podcast:
+        meta["podcast"] = podcast[0] if isinstance(podcast, list) else str(podcast)
+    title = tags.get("title")
+    if title:
+        meta["episode_title"] = title[0] if isinstance(title, list) else str(title)
+    date_tag = tags.get("date")
+    if date_tag:
+        value = date_tag[0] if isinstance(date_tag, list) else str(date_tag)
+        meta["published_date"] = str(value)[:10]
+    info = getattr(audio, "info", None)
+    if info and hasattr(info, "length"):
+        meta["duration_sec"] = int(info.length)
+    return meta
+
+
+def _language_from_args(args: list[str]) -> str:
+    if "--language" in args:
+        idx = args.index("--language")
+        if idx + 1 < len(args):
+            return args[idx + 1]
+    return "en"
 
 
 @dataclass

@@ -48,7 +48,7 @@ def test_ingest_creates_structure(tmp_path, monkeypatch):
     monkeypatch.setenv("PODX_CONFIG", str(cfg))
     audio = tmp_path / "audio.wav"
     create_audio(audio)
-    monkeypatch.setattr("podx.ingest.extract_metadata", fake_metadata)
+    monkeypatch.setattr("podx.services.ingestion.extract_metadata", fake_metadata)
     monkeypatch.setattr("podx.whisper.WhisperRunner.transcribe", fake_transcribe)
     exit_code = main(["ingest", "--podcast", "Test Pod", "--episode", "Ep1", "--audio", str(audio)])
     assert exit_code == 0
@@ -67,7 +67,7 @@ def test_ingest_skips_existing_transcript(tmp_path, monkeypatch, capsys):
     monkeypatch.setenv("PODX_CONFIG", str(cfg))
     audio = tmp_path / "audio.wav"
     create_audio(audio)
-    monkeypatch.setattr("podx.ingest.extract_metadata", fake_metadata)
+    monkeypatch.setattr("podx.services.ingestion.extract_metadata", fake_metadata)
     monkeypatch.setattr("podx.whisper.WhisperRunner.transcribe", fake_transcribe)
     # First run
     main(["ingest", "--podcast", "Test Pod", "--episode", "Ep1", "--audio", str(audio)])
@@ -90,7 +90,7 @@ def test_ingest_bad_audio(tmp_path, monkeypatch):
     monkeypatch.setenv("PODX_CONFIG", str(cfg))
     audio = tmp_path / "audio.wav"
     create_audio(audio)
-    monkeypatch.setattr("podx.ingest.extract_metadata", fake_metadata)
+    monkeypatch.setattr("podx.services.ingestion.extract_metadata", fake_metadata)
 
     def bad_transcribe(*args, **kwargs):
         raise RuntimeError("fail")
@@ -116,7 +116,7 @@ def test_ingest_keeps_audio_when_enabled(tmp_path, monkeypatch):
 
     audio = tmp_path / "audio.wav"
     create_audio(audio)
-    monkeypatch.setattr("podx.ingest.extract_metadata", fake_metadata)
+    monkeypatch.setattr("podx.services.ingestion.extract_metadata", fake_metadata)
     monkeypatch.setattr("podx.whisper.WhisperRunner.transcribe", fake_transcribe)
     exit_code = main(["ingest", "--podcast", "Test Pod", "--episode", "Ep1", "--audio", str(audio)])
     assert exit_code == 0
