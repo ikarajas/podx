@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Optional
 
 from ..config import Config, load_config
-from ..progress import ProgressWriter
+from ..progress import ProgressReporter
 from ..whisper import get_runner
 
 try:  # pragma: no cover
@@ -80,7 +80,7 @@ class IngestionService:
         podcast: Optional[str] = None,
         episode: Optional[str] = None,
         force: bool = False,
-        writer: ProgressWriter | None = None,
+        reporter: ProgressReporter | None = None,
     ) -> Episode | None:
         """Ingest ``audio`` and return an :class:`Episode`.
 
@@ -127,14 +127,14 @@ class IngestionService:
         tmp_txt = tmp_dir / "transcript.txt"
         shutil.copy2(audio, tmp_audio)
         try:
-            # Stream progress if supported and writer provided
+            # Stream progress if supported and reporter provided
             transcribe_kwargs: dict = {}
             try:
                 import inspect
 
                 sig = inspect.signature(runner.transcribe)
-                if writer is not None and "writer" in sig.parameters:
-                    transcribe_kwargs["writer"] = writer
+                if reporter is not None and "reporter" in sig.parameters:
+                    transcribe_kwargs["reporter"] = reporter
                 if (
                     "total_duration_sec" in sig.parameters
                     and isinstance(duration_sec, int)

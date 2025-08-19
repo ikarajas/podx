@@ -4,6 +4,7 @@ from pathlib import Path
 from typing import Optional
 
 from .config import Config, load_config
+from .progress import ProgressReporter
 
 
 def ingest_episode(
@@ -12,6 +13,7 @@ def ingest_episode(
     episode: Optional[str] = None,
     force: bool = False,
     cfg: Config | None = None,
+    reporter: ProgressReporter | None = None,
 ) -> int:
     """Backward compatible wrapper around :class:`IngestionService`.
 
@@ -21,12 +23,13 @@ def ingest_episode(
     """
 
     from .services import IngestionService
-    from .progress import ConsoleProgressWriter
+    from .progress import ConsoleProgressReporter
 
     service = IngestionService(cfg or load_config())
+    reporter = reporter or ConsoleProgressReporter()
     try:
         result = service.ingest_episode(
-            audio, podcast, episode, force, ConsoleProgressWriter()
+            audio, podcast, episode, force, reporter
         )
         if result is None:
             print("Transcript already exists, nothing to do.")
