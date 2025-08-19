@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import subprocess
+from concurrent.futures import Future, ThreadPoolExecutor
 from pathlib import Path
-from typing import Optional
+from typing import Callable, Optional
+
 from .config import WhisperSettings
 from .progress import ProgressFeeder, ProgressReporter
 
@@ -10,6 +12,41 @@ from .progress import ProgressFeeder, ProgressReporter
 class WhisperRunner:
     def __init__(self, settings: WhisperSettings):
         self.settings = settings
+        self._executor: ThreadPoolExecutor | None = None
+
+    def _get_executor(self) -> ThreadPoolExecutor:
+        if self._executor is None:
+            self._executor = ThreadPoolExecutor(max_workers=1)
+        return self._executor
+
+    def transcribe_async(
+        self,
+        audio_path: Path,
+        vtt_path: Path,
+        txt_path: Path,
+        log_file: Path,
+        *,
+        reporter: Optional[ProgressReporter] = None,
+        total_duration_sec: Optional[int] = None,
+        done_callback: Optional[Callable[[Future], None]] = None,
+    ) -> Future:
+        executor = self._get_executor()
+        kwargs = {}
+        if reporter is not None:
+            kwargs["reporter"] = reporter
+        if total_duration_sec is not None:
+            kwargs["total_duration_sec"] = total_duration_sec
+        future = executor.submit(
+            self.transcribe,
+            audio_path,
+            vtt_path,
+            txt_path,
+            log_file,
+            **kwargs,
+        )
+        if done_callback is not None:
+            future.add_done_callback(done_callback)
+        return future
 
     def transcribe(
         self,
