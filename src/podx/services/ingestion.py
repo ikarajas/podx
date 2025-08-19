@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
 from datetime import datetime, date
 from concurrent.futures import Future, ThreadPoolExecutor
 import json
@@ -12,6 +11,7 @@ from typing import Optional
 from ..config import Config
 from ..progress import ProgressReporter
 from ..whisper import get_runner
+from ..models import Episode, TranscriptionResult
 
 try:  # pragma: no cover
     from mutagen import File as MutagenFile  # type: ignore
@@ -54,19 +54,6 @@ def _language_from_args(args: list[str]) -> str:
         if idx + 1 < len(args):
             return args[idx + 1]
     return "en"
-
-
-@dataclass
-class Episode:
-    """Represents an ingested podcast episode."""
-
-    podcast: str
-    episode_title: str
-    published_date: str
-    duration_sec: int
-    source_audio_path: str
-    transcript: dict
-    path: Path
 
 
 class IngestionService:
@@ -192,35 +179,28 @@ class IngestionService:
             shutil.move(str(tmp_txt), transcript_txt)
             shutil.rmtree(tmp_dir)
 
-            transcript = {
-                "status": "done",
-                "engine": self.cfg.whisper.runner,
-                "model": self.cfg.whisper.model,
-                "language": _language_from_args(self.cfg.whisper.extra_args),
-                "created_at": datetime.now().isoformat(),
-                "files": ["transcript.vtt", "transcript.txt"],
-            }
+            transcript = TranscriptionResult(
+                status="done",
+                engine=self.cfg.whisper.runner,
+                model=self.cfg.whisper.model,
+                language=_language_from_args(self.cfg.whisper.extra_args),
+                created_at=datetime.now().isoformat(),
+                vtt_path=transcript_vtt,
+                txt_path=transcript_txt,
+            )
 
             episode_data = Episode(
                 podcast=podcast_name,
                 episode_title=episode_title,
                 published_date=published_date,
                 duration_sec=duration_sec,
-                source_audio_path=str(audio),
+                source_audio_path=audio,
                 transcript=transcript,
                 path=episode_dir,
             )
 
-            episode_json = {
-                "podcast": podcast_name,
-                "episode_title": episode_title,
-                "published_date": published_date,
-                "duration_sec": duration_sec,
-                "source_audio_path": str(audio),
-                "transcript": transcript,
-            }
             with open(episode_dir / "episode.json", "w") as f:
-                json.dump(episode_json, f, indent=2)
+                json.dump(episode_data.to_dict(), f, indent=2)
             return episode_data
         except Exception as exc:
             # Failure – clean up any partially written files.
@@ -234,4 +214,4 @@ class IngestionService:
                 lock_path.unlink()
 
 
-__all__ = ["Episode", "IngestionService"]
+__all__ = ["IngestionService"]

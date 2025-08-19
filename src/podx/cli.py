@@ -40,6 +40,11 @@ def build_parser() -> argparse.ArgumentParser:
             )
             if result is None:
                 print("Transcript already exists, nothing to do.")
+            else:
+                print(
+                    f"Ingested '{result.episode_title}' from '{result.podcast}'"
+                )
+                print(f"Transcript saved to: {result.transcript.txt_path}")
             return 0
         except FileNotFoundError:
             print("Audio file not found")
