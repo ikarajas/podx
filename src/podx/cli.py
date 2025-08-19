@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Sequence
 
 from . import __version__
+from .app import get_config
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -32,7 +33,7 @@ def build_parser() -> argparse.ArgumentParser:
         from .services import IngestionService
         from .progress import ConsoleProgressReporter
 
-        service = IngestionService()
+        service = IngestionService(get_config())
         try:
             result = service.ingest_episode(
                 Path(args.audio), args.podcast, args.episode, args.force, ConsoleProgressReporter()
@@ -55,7 +56,7 @@ def build_parser() -> argparse.ArgumentParser:
     def _search(args: argparse.Namespace) -> int:
         from .services import DirectoryService
 
-        service = DirectoryService()
+        service = DirectoryService(get_config())
         podcasts = service.search_podcasts(args.name)
         for p in podcasts:
             print(f"Podcast Name: {p.name}")

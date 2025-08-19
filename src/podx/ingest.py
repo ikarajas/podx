@@ -3,7 +3,8 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Optional
 
-from .config import Config, load_config
+from .config import Config
+from .app import get_config
 from .progress import ProgressReporter
 
 
@@ -25,7 +26,7 @@ def ingest_episode(
     from .services import IngestionService
     from .progress import ConsoleProgressReporter
 
-    service = IngestionService(cfg or load_config())
+    service = IngestionService(cfg or get_config())
     reporter = reporter or ConsoleProgressReporter()
     try:
         result = service.ingest_episode(

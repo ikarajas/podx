@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from typing import List, Protocol
 from urllib import parse, request
 import json
+from ..config import Config
 
 
 @dataclass
@@ -45,7 +46,8 @@ class ITunesDirectoryClient:
 class DirectoryService:
     """Service for searching podcast directories."""
 
-    def __init__(self, client: DirectoryClient | None = None) -> None:
+    def __init__(self, cfg: Config, client: DirectoryClient | None = None) -> None:
+        self.cfg = cfg
         self.client = client or ITunesDirectoryClient()
 
     def search_podcasts(self, term: str) -> List[Podcast]:
