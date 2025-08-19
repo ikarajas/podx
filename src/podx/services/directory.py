@@ -1,19 +1,10 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
 from typing import List, Protocol
 from urllib import parse, request
 import json
 from ..config import Config
-
-
-@dataclass
-class Podcast:
-    """Simple representation of a podcast in a directory search result."""
-
-    name: str
-    feed_url: str
-    genres: list[str]
+from ..models import Podcast
 
 
 class DirectoryClient(Protocol):

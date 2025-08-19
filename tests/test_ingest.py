@@ -1,4 +1,3 @@
-import json
 import wave
 from pathlib import Path
 import sys
@@ -6,7 +5,7 @@ import pytest
 import json as jsonlib
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
-from podx.cli import main
+from podx.services import IngestionService
 from podx.app import get_config
 
 
@@ -52,19 +51,20 @@ def test_ingest_creates_structure(tmp_path, monkeypatch):
     create_audio(audio)
     monkeypatch.setattr("podx.services.ingestion.extract_metadata", fake_metadata)
     monkeypatch.setattr("podx.whisper.WhisperRunner.transcribe", fake_transcribe)
-    exit_code = main(["ingest", "--podcast", "Test Pod", "--episode", "Ep1", "--audio", str(audio)])
-    assert exit_code == 0
+    service = IngestionService(get_config())
+    episode = service.ingest_episode(audio, "Test Pod", "Ep1")
+    assert episode is not None
     episode_dir = tmp_path / "root" / "Test Pod" / "2025-08-01 - Ep1"
+    assert episode.path == episode_dir
     # By default we do not keep a copy of the audio in the episode directory
     assert not (episode_dir / "audio.wav").exists()
-    assert (episode_dir / "transcript.vtt").exists()
-    assert (episode_dir / "transcript.txt").exists()
-    data = json.loads((episode_dir / "episode.json").read_text())
-    assert data["podcast"] == "Test Pod"
-    assert data["transcript"]["status"] == "done"
+    assert episode.transcript.vtt_path.exists()
+    assert episode.transcript.txt_path.exists()
+    assert episode.podcast == "Test Pod"
+    assert episode.transcript.status == "done"
 
 
-def test_ingest_skips_existing_transcript(tmp_path, monkeypatch, capsys):
+def test_ingest_skips_existing_transcript(tmp_path, monkeypatch):
     cfg = config_file(tmp_path)
     monkeypatch.setenv("PODX_CONFIG", str(cfg))
     get_config.cache_clear()
@@ -72,19 +72,17 @@ def test_ingest_skips_existing_transcript(tmp_path, monkeypatch, capsys):
     create_audio(audio)
     monkeypatch.setattr("podx.services.ingestion.extract_metadata", fake_metadata)
     monkeypatch.setattr("podx.whisper.WhisperRunner.transcribe", fake_transcribe)
-    # First run
-    main(["ingest", "--podcast", "Test Pod", "--episode", "Ep1", "--audio", str(audio)])
-    # Second run should skip
+    service = IngestionService(get_config())
+    service.ingest_episode(audio, "Test Pod", "Ep1")
     called = False
 
     def fail_transcribe(*args, **kwargs):
         nonlocal called
         called = True
+
     monkeypatch.setattr("podx.whisper.WhisperRunner.transcribe", fail_transcribe)
-    exit_code = main(["ingest", "--podcast", "Test Pod", "--episode", "Ep1", "--audio", str(audio)])
-    captured = capsys.readouterr()
-    assert exit_code == 0
-    assert "nothing to do" in captured.out.lower()
+    result = service.ingest_episode(audio, "Test Pod", "Ep1")
+    assert result is None
     assert called is False
 
 
@@ -98,9 +96,11 @@ def test_ingest_bad_audio(tmp_path, monkeypatch):
 
     def bad_transcribe(*args, **kwargs):
         raise RuntimeError("fail")
+
     monkeypatch.setattr("podx.whisper.WhisperRunner.transcribe", bad_transcribe)
-    exit_code = main(["ingest", "--podcast", "Test Pod", "--episode", "Ep1", "--audio", str(audio)])
-    assert exit_code == 1
+    service = IngestionService(get_config())
+    with pytest.raises(RuntimeError):
+        service.ingest_episode(audio, "Test Pod", "Ep1")
     episode_dir = tmp_path / "root" / "Test Pod" / "2025-08-01 - Ep1"
     assert not (episode_dir / "transcript.vtt").exists()
     assert not (episode_dir / "episode.json").exists()
@@ -123,9 +123,10 @@ def test_ingest_keeps_audio_when_enabled(tmp_path, monkeypatch):
     create_audio(audio)
     monkeypatch.setattr("podx.services.ingestion.extract_metadata", fake_metadata)
     monkeypatch.setattr("podx.whisper.WhisperRunner.transcribe", fake_transcribe)
-    exit_code = main(["ingest", "--podcast", "Test Pod", "--episode", "Ep1", "--audio", str(audio)])
-    assert exit_code == 0
+    service = IngestionService(get_config())
+    episode = service.ingest_episode(audio, "Test Pod", "Ep1")
+    assert episode is not None
     episode_dir = tmp_path / "root" / "Test Pod" / "2025-08-01 - Ep1"
     assert (episode_dir / "audio.wav").exists()
-    assert (episode_dir / "transcript.vtt").exists()
-    assert (episode_dir / "transcript.txt").exists()
+    assert episode.transcript.vtt_path.exists()
+    assert episode.transcript.txt_path.exists()
