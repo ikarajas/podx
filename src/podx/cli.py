@@ -27,19 +27,36 @@ def build_parser() -> argparse.ArgumentParser:
     ingest_p.add_argument("--episode", help="Episode title", default=None)
     ingest_p.add_argument("--audio", required=True, help="Path to audio file")
     ingest_p.add_argument("--force", action="store_true", help="Overwrite existing transcript")
-    from .ingest import ingest_episode
 
     def _ingest(args: argparse.Namespace) -> int:
-        return ingest_episode(Path(args.audio), args.podcast, args.episode, args.force)
+        from .services import IngestionService
+        from .progress import ConsoleProgressWriter
+
+        service = IngestionService()
+        try:
+            result = service.ingest_episode(
+                Path(args.audio), args.podcast, args.episode, args.force, ConsoleProgressWriter()
+            )
+            if result is None:
+                print("Transcript already exists, nothing to do.")
+            return 0
+        except FileNotFoundError:
+            print("Audio file not found")
+            return 1
+        except Exception as exc:
+            print(str(exc))
+            return 1
 
     ingest_p.set_defaults(func=_ingest)
 
     search_p = subparsers.add_parser("search", help="Search for podcasts")
     search_p.add_argument("name", help="Podcast name to search for")
-    from .directory import search_podcasts
 
     def _search(args: argparse.Namespace) -> int:
-        podcasts = search_podcasts(args.name)
+        from .services import DirectoryService
+
+        service = DirectoryService()
+        podcasts = service.search_podcasts(args.name)
         for p in podcasts:
             print(f"Podcast Name: {p.name}")
             print(f"Feed URL: {p.feed_url}")
