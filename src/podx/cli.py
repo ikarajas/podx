@@ -31,7 +31,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     def _ingest(args: argparse.Namespace) -> int:
         from .services import IngestionService
-        from .progress import ConsoleProgressReporter
+        from podx.services.progress import ConsoleProgressReporter
 
         service = IngestionService(get_config())
         try:

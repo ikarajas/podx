@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Optional
 
 from podx.services.config import Config
-from ..progress import ProgressReporter
+from podx.services.progress import ProgressReporter
 from ..whisper import get_runner
 from ..models import Episode, TranscriptionResult
 
