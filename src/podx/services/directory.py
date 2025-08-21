@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import List, Protocol
 from urllib import parse, request
 import json
-from ..config import Config
+from podx.services.config import Config
 from ..models import Podcast
 
 

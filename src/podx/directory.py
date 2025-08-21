@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import List
 
-from .config import Config
+from podx.services.config import Config
 from .app import get_config
 from .services.directory import (
     Podcast,

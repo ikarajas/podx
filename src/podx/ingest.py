@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Optional
 
-from .config import Config
+from podx.services.config import Config
 from .app import get_config
 from .progress import ProgressReporter
 

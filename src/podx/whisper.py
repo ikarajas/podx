@@ -5,7 +5,7 @@ from concurrent.futures import Future, ThreadPoolExecutor
 from pathlib import Path
 from typing import Callable, Optional
 
-from .config import WhisperSettings
+from podx.services.config import WhisperSettings
 from .progress import ProgressFeeder, ProgressReporter
 
 
