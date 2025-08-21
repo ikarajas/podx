@@ -4,8 +4,11 @@ import argparse
 from pathlib import Path
 from typing import Sequence
 
+from podx.services.progress import ConsoleProgressReporter
+
 from . import __version__
 from .app import get_config
+from .services import IngestionService
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -30,9 +33,6 @@ def build_parser() -> argparse.ArgumentParser:
     ingest_p.add_argument("--force", action="store_true", help="Overwrite existing transcript")
 
     def _ingest(args: argparse.Namespace) -> int:
-        from .services import IngestionService
-        from podx.services.progress import ConsoleProgressReporter
-
         service = IngestionService(get_config())
         try:
             result = service.ingest_episode(

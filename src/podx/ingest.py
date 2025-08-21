@@ -1,46 +1,47 @@
+"""Backward compatibility wrapper for :class:`IngestionService`.
+
+This module preserves the old ``podx.ingest.ingest_episode`` API while
+delegating to :class:`podx.services.IngestionService`.  A ``DeprecationWarning``
+is emitted on use.
+"""
+
 from __future__ import annotations
 
+import warnings
 from pathlib import Path
-from typing import Optional
+from typing import TYPE_CHECKING
 
 from podx.services.config import Config
 from .app import get_config
-from podx.services.progress import ProgressReporter
+from .services import IngestionService
+
+if TYPE_CHECKING:  # pragma: no cover - typing only
+    from podx.services.progress import ProgressReporter
 
 
 def ingest_episode(
     audio: Path,
-    podcast: Optional[str] = None,
-    episode: Optional[str] = None,
+    podcast: str | None = None,
+    episode: str | None = None,
     force: bool = False,
     cfg: Config | None = None,
-    reporter: ProgressReporter | None = None,
-) -> int:
-    """Backward compatible wrapper around :class:`IngestionService`.
+    reporter: "ProgressReporter" | None = None,
+):
+    """Delegate to :meth:`IngestionService.ingest_episode`.
 
-    This function retains the original command line behaviour by delegating to
-    :class:`podx.services.IngestionService`.  An exit code is returned and
-    messages are printed to stdout.
+    Parameters mirror :meth:`IngestionService.ingest_episode`.  The return value
+    is whatever the service returns.  ``DeprecationWarning`` is issued to signal
+    that this wrapper will be removed in a future release.
     """
 
-    from .services import IngestionService
-    from podx.services.progress import ConsoleProgressReporter
-
+    warnings.warn(
+        "podx.ingest.ingest_episode is deprecated; use IngestionService directly",
+        DeprecationWarning,
+        stacklevel=2,
+    )
     service = IngestionService(cfg or get_config())
-    reporter = reporter or ConsoleProgressReporter()
-    try:
-        result = service.ingest_episode(
-            audio, podcast, episode, force, reporter
-        )
-        if result is None:
-            print("Transcript already exists, nothing to do.")
-        return 0
-    except FileNotFoundError:
-        print("Audio file not found")
-        return 1
-    except Exception as exc:  # pragma: no cover - exception branch tested
-        print(str(exc))
-        return 1
+    return service.ingest_episode(audio, podcast, episode, force, reporter)
 
 
 __all__ = ["ingest_episode"]
+
