@@ -5,7 +5,7 @@ from typing import Optional
 
 from podx.services.config import Config
 from .app import get_config
-from .progress import ProgressReporter
+from podx.services.progress import ProgressReporter
 
 
 def ingest_episode(
@@ -24,7 +24,7 @@ def ingest_episode(
     """
 
     from .services import IngestionService
-    from .progress import ConsoleProgressReporter
+    from podx.services.progress import ConsoleProgressReporter
 
     service = IngestionService(cfg or get_config())
     reporter = reporter or ConsoleProgressReporter()

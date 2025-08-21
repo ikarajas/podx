@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Callable, Optional
 
 from podx.services.config import WhisperSettings
-from .progress import ProgressFeeder, ProgressReporter
+from podx.services.progress import ProgressFeeder, ProgressReporter
 
 
 class WhisperRunner:
