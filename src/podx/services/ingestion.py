@@ -8,7 +8,7 @@ import shutil
 from pathlib import Path
 from typing import Optional
 
-from ..config import Config
+from podx.services.config import Config
 from ..progress import ProgressReporter
 from ..whisper import get_runner
 from ..models import Episode, TranscriptionResult

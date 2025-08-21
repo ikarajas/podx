@@ -1,5 +1,5 @@
 from functools import lru_cache
-from .config import Config, load_config
+from podx.services.config import Config, load_config
 
 @lru_cache(maxsize=1)
 def get_config() -> Config:
