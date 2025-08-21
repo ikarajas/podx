@@ -50,7 +50,9 @@ def test_ingest_creates_structure(tmp_path, monkeypatch):
     audio = tmp_path / "audio.wav"
     create_audio(audio)
     monkeypatch.setattr("podx.services.ingestion.extract_metadata", fake_metadata)
-    monkeypatch.setattr("podx.whisper.WhisperRunner.transcribe", fake_transcribe)
+    monkeypatch.setattr(
+        "podx.services.whisper.WhisperRunner.transcribe", fake_transcribe
+    )
     service = IngestionService(get_config())
     episode = service.ingest_episode(audio, "Test Pod", "Ep1")
     assert episode is not None
@@ -71,7 +73,9 @@ def test_ingest_skips_existing_transcript(tmp_path, monkeypatch):
     audio = tmp_path / "audio.wav"
     create_audio(audio)
     monkeypatch.setattr("podx.services.ingestion.extract_metadata", fake_metadata)
-    monkeypatch.setattr("podx.whisper.WhisperRunner.transcribe", fake_transcribe)
+    monkeypatch.setattr(
+        "podx.services.whisper.WhisperRunner.transcribe", fake_transcribe
+    )
     service = IngestionService(get_config())
     service.ingest_episode(audio, "Test Pod", "Ep1")
     called = False
@@ -80,7 +84,9 @@ def test_ingest_skips_existing_transcript(tmp_path, monkeypatch):
         nonlocal called
         called = True
 
-    monkeypatch.setattr("podx.whisper.WhisperRunner.transcribe", fail_transcribe)
+    monkeypatch.setattr(
+        "podx.services.whisper.WhisperRunner.transcribe", fail_transcribe
+    )
     result = service.ingest_episode(audio, "Test Pod", "Ep1")
     assert result is None
     assert called is False
@@ -97,7 +103,9 @@ def test_ingest_bad_audio(tmp_path, monkeypatch):
     def bad_transcribe(*args, **kwargs):
         raise RuntimeError("fail")
 
-    monkeypatch.setattr("podx.whisper.WhisperRunner.transcribe", bad_transcribe)
+    monkeypatch.setattr(
+        "podx.services.whisper.WhisperRunner.transcribe", bad_transcribe
+    )
     service = IngestionService(get_config())
     with pytest.raises(RuntimeError):
         service.ingest_episode(audio, "Test Pod", "Ep1")
@@ -122,7 +130,9 @@ def test_ingest_keeps_audio_when_enabled(tmp_path, monkeypatch):
     audio = tmp_path / "audio.wav"
     create_audio(audio)
     monkeypatch.setattr("podx.services.ingestion.extract_metadata", fake_metadata)
-    monkeypatch.setattr("podx.whisper.WhisperRunner.transcribe", fake_transcribe)
+    monkeypatch.setattr(
+        "podx.services.whisper.WhisperRunner.transcribe", fake_transcribe
+    )
     service = IngestionService(get_config())
     episode = service.ingest_episode(audio, "Test Pod", "Ep1")
     assert episode is not None
