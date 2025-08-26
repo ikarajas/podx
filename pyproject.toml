@@ -18,7 +18,8 @@ classifiers = [
 dependencies = [
   "mlx-whisper",
   "PyYAML",
-  "mutagen"
+  "mutagen",
+  "PyQt6"
 ]
 
 [project.scripts]
