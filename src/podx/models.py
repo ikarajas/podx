@@ -14,6 +14,15 @@ class Podcast:
 
 
 @dataclass
+class Subscription:
+    """Represents a subscribed podcast."""
+
+    name: str
+    feed_url: str
+    icon_url: str | None = None
+
+
+@dataclass
 class TranscriptionResult:
     """Represents the result of a transcription run."""
 
@@ -60,4 +69,4 @@ class Episode:
         }
 
 
-__all__ = ["Podcast", "TranscriptionResult", "Episode"]
+__all__ = ["Podcast", "Subscription", "TranscriptionResult", "Episode"]
