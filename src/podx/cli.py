@@ -72,6 +72,18 @@ def build_parser() -> argparse.ArgumentParser:
 
     search_p.set_defaults(func=_search)
 
+    ui_p = subparsers.add_parser("ui", help="Launch the graphical user interface")
+
+    def _ui(_args: argparse.Namespace) -> int:
+        try:
+            from .ui.main import main as ui_main
+        except ModuleNotFoundError as exc:  # pragma: no cover - import error message
+            print(str(exc))
+            return 1
+        return ui_main()
+
+    ui_p.set_defaults(func=_ui)
+
     # Default action: show help when no subcommands/args are provided
     parser.set_defaults(func=lambda _args: parser.print_help())
     return parser
