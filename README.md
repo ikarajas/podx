@@ -13,7 +13,7 @@ pip install -e .
 
 ## CLI Usage
 
-`podx` exposes two sub‑commands:
+`podx` exposes three sub‑commands:
 
 * **Transcribe an episode**
 
@@ -25,6 +25,12 @@ pip install -e .
 
   ```bash
   podx search "history"
+  ```
+
+* **Launch the graphical interface**
+
+  ```bash
+  podx ui
   ```
 
 Run `podx --help` or `podx <command> --help` for full options.  The tool can
