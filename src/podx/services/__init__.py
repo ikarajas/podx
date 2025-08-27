@@ -3,7 +3,7 @@ from __future__ import annotations
 from importlib import import_module
 from typing import TYPE_CHECKING
 
-from ..models import Episode, Podcast, Subscription
+from ..models import Episode, PodcastSearchResult, Subscription
 
 if TYPE_CHECKING:  # pragma: no cover
     from .ingestion import IngestionService
@@ -12,7 +12,7 @@ if TYPE_CHECKING:  # pragma: no cover
 
 __all__ = [
     "Episode",
-    "Podcast",
+    "PodcastSearchResult",
     "Subscription",
     "IngestionService",
     "DirectoryService",

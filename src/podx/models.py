@@ -5,12 +5,20 @@ from pathlib import Path
 
 
 @dataclass
-class Podcast:
-    """Simple representation of a podcast in a directory search result."""
+class PodcastSearchResult:
+    """Representation of a podcast returned by a directory search.
+
+    Optional fields allow richer detail views without forcing all
+    directories to provide them.
+    """
 
     name: str
     feed_url: str
     genres: list[str]
+    # Optional details for richer UI
+    icon_url: str | None = None
+    publisher: str | None = None
+    url: str | None = None  # Directory page URL
 
 
 @dataclass
@@ -69,4 +77,9 @@ class Episode:
         }
 
 
-__all__ = ["Podcast", "Subscription", "TranscriptionResult", "Episode"]
+__all__ = [
+    "PodcastSearchResult",
+    "Subscription",
+    "TranscriptionResult",
+    "Episode",
+]

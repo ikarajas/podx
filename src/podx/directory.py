@@ -5,7 +5,7 @@ from typing import List
 from podx.services.config import Config
 from .app import get_config
 from .services.directory import (
-    Podcast,
+    PodcastSearchResult,
     DirectoryClient,
     ITunesDirectoryClient,
     DirectoryService,
@@ -15,11 +15,17 @@ from .services.directory import (
 
 def search_podcasts(
     term: str, client: DirectoryClient | None = None, cfg: Config | None = None
-) -> List[Podcast]:
+) -> List[PodcastSearchResult]:
     """Backward compatible wrapper around :class:`DirectoryService`."""
 
     service = DirectoryService(cfg or get_config(), client)
     return service.search_podcasts(term)
 
 
-__all__ = ["Podcast", "DirectoryClient", "ITunesDirectoryClient", "search_podcasts", "request"]
+__all__ = [
+    "PodcastSearchResult",
+    "DirectoryClient",
+    "ITunesDirectoryClient",
+    "search_podcasts",
+    "request",
+]
