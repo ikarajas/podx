@@ -36,7 +36,12 @@ class SubscriptionListView(QWidget):
         self.service = service
         layout = QVBoxLayout(self)
         self.list_widget = QListWidget()
-        self.list_widget.itemClicked.connect(lambda item: on_select(item.data(Qt.ItemDataRole.UserRole)))
+        # Activating an item should open the podcast view.  Use the
+        # ``itemActivated`` signal so the handler works for both mouse and
+        # keyboard activation.
+        self.list_widget.itemActivated.connect(
+            lambda item: on_select(item.data(Qt.ItemDataRole.UserRole))
+        )
         layout.addWidget(self.list_widget)
         self.search_button = QPushButton("Search Podcasts")
         self.search_button.clicked.connect(on_search)

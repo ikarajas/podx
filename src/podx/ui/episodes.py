@@ -221,9 +221,10 @@ class PodcastView(QWidget):
         self.rss = rss
         layout = QVBoxLayout(self)
         header = QHBoxLayout()
-        back = QPushButton("Back")
-        back.clicked.connect(on_back)
-        header.addWidget(back)
+        # Top-left back button for returning to the subscription list
+        self.back_button = QPushButton("Back to Subscriptions")
+        self.back_button.clicked.connect(on_back)
+        header.addWidget(self.back_button)
         header.addStretch(1)
         layout.addLayout(header)
         self.list = QListView()
