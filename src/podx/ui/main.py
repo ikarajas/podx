@@ -24,6 +24,8 @@ from podx.app import get_config
 from podx.models import PodcastSearchResult, Subscription
 from podx.services.directory import DirectoryService
 from podx.services.subscriptions import SubscriptionService
+from podx.services import RssService
+from podx.ui.episodes import PodcastView
 
 
 class SubscriptionListView(QWidget):
@@ -207,13 +209,14 @@ class MainWindow(QMainWindow):
         cfg = get_config()
         self.subscription_service = SubscriptionService(cfg)
         self.directory_service = DirectoryService(cfg)
+        self.rss_service = RssService()
         self.stack = QStackedWidget()
         self.setCentralWidget(self.stack)
         self.subscriptions_view = SubscriptionListView(
             self.subscription_service, self.show_podcast, self.show_search
         )
         self.stack.addWidget(self.subscriptions_view)
-        self.podcast_view = QLabel("Podcast view not implemented")
+        self.podcast_view = PodcastView(self.rss_service, on_back=self.show_subscriptions)
         self.stack.addWidget(self.podcast_view)
         self.search_view = SearchView(
             self.directory_service,
@@ -225,7 +228,7 @@ class MainWindow(QMainWindow):
         self.stack.setCurrentWidget(self.subscriptions_view)
 
     def show_podcast(self, sub: Subscription) -> None:
-        self.podcast_view.setText(f"Podcast view for {sub.name}")
+        self.podcast_view.load(sub)
         self.stack.setCurrentWidget(self.podcast_view)
 
     def show_subscriptions(self) -> None:
