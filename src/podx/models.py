@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 
 
@@ -28,6 +29,18 @@ class Subscription:
     name: str
     feed_url: str
     icon_url: str | None = None
+
+
+@dataclass
+class FeedEpisode:
+    """Episode metadata parsed from an RSS feed."""
+
+    title: str
+    description: str
+    published: datetime | None
+    duration: int | None
+    artwork_url: str | None
+    transcribed: bool = False
 
 
 @dataclass
@@ -80,6 +93,7 @@ class Episode:
 __all__ = [
     "PodcastSearchResult",
     "Subscription",
+    "FeedEpisode",
     "TranscriptionResult",
     "Episode",
 ]
