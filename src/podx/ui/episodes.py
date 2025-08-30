@@ -24,6 +24,11 @@ from PyQt6.QtWidgets import (
     QWidget,
     QPushButton,
     QHBoxLayout,
+    QSplitter,
+    QLabel,
+    QPlainTextEdit,
+    QScrollArea,
+    QSizePolicy,
 )
 
 from ..models import FeedEpisode
@@ -289,13 +294,50 @@ class PodcastView(QWidget):
         # Simple single-worker queue to serialize transcriptions
         from concurrent.futures import ThreadPoolExecutor
         self._worker = ThreadPoolExecutor(max_workers=1)
-        layout = QVBoxLayout(self)
+        root = QVBoxLayout(self)
         header = QHBoxLayout()
         back = QPushButton("Back")
         back.clicked.connect(on_back)
         header.addWidget(back)
         header.addStretch(1)
-        layout.addLayout(header)
+        root.addLayout(header)
+
+        # Podcast details (top of window, above splitter). Scrollable with max height.
+        details_scroll = QScrollArea()
+        details_scroll.setWidgetResizable(True)
+        details_scroll.setMaximumHeight(300)  # ~50% taller default cap
+        details_scroll.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
+        details = QWidget()
+        details_layout = QHBoxLayout(details)
+        self.podcast_icon = QLabel("")
+        self.podcast_icon.setMinimumSize(64, 64)
+        self.podcast_icon.setMaximumSize(96, 96)
+        # Preserve aspect ratio: don't stretch the pixmap to the label rect
+        self.podcast_icon.setScaledContents(False)
+        self.podcast_icon.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
+        right_box = QVBoxLayout()
+        self.podcast_title = QLabel("")
+        self.podcast_title.setStyleSheet("font-weight: bold; font-size: 16px;")
+        self.podcast_title.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
+        self.podcast_desc = QLabel("")
+        self.podcast_desc.setWordWrap(True)
+        self.podcast_desc.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
+        self.podcast_desc.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Preferred)
+        right_box.addWidget(self.podcast_title)
+        right_box.addWidget(self.podcast_desc)
+        # Keep content anchored to top by consuming extra space at the bottom
+        right_box.addStretch(1)
+        details_layout.addWidget(self.podcast_icon)
+        details_layout.setAlignment(self.podcast_icon, Qt.AlignmentFlag.AlignTop)
+        details_layout.addLayout(right_box)
+        details_layout.setAlignment(right_box, Qt.AlignmentFlag.AlignTop)
+        details_scroll.setWidget(details)
+        
+        # Nested splitters: vertical (top details + bottom horizontal splitter)
+        splitter = QSplitter()
+        # Left panel: podcast header + list
+        left_panel = QWidget()
+        left_layout = QVBoxLayout(left_panel)
         self.list = QListView()
         self.model = EpisodeListModel()
         self.list.setModel(self.model)
@@ -304,11 +346,66 @@ class PodcastView(QWidget):
         self.delegate.transcribeRequested.connect(self._on_transcribe)
         # Connect result signal
         self.transcribeFinished.connect(self._on_transcribe_result)
-        # Quick wins: uniform sizes and batched layout
+        # Uniform sizes and batched layout
         self.list.setUniformItemSizes(True)
         self.list.setLayoutMode(QListView.LayoutMode.Batched)
         self.list.setBatchSize(256)
-        layout.addWidget(self.list, 1)
+        left_layout.addWidget(self.list, 1)
+        splitter.addWidget(left_panel)
+
+        # Right panel: transcript display
+        right_panel = QWidget()
+        right_layout = QVBoxLayout(right_panel)
+        self.transcript_view = QPlainTextEdit()
+        self.transcript_view.setReadOnly(True)
+        right_layout.addWidget(self.transcript_view)
+        splitter.addWidget(right_panel)
+        splitter.setStretchFactor(0, 2)
+        splitter.setStretchFactor(1, 3)
+
+        top_splitter = QSplitter(Qt.Orientation.Vertical)
+        top_splitter.addWidget(details_scroll)
+        top_splitter.addWidget(splitter)
+        # Let list/transcript area take most space
+        top_splitter.setStretchFactor(0, 0)
+        top_splitter.setStretchFactor(1, 1)
+        # Bias initial sizes to keep details visible but compact
+        try:
+            top_splitter.setSizes([300, 1200])
+        except Exception:
+            pass
+        root.addWidget(top_splitter, 1)
+
+        # Store splitters for persistence
+        self._h_splitter = splitter
+        self._v_splitter = top_splitter
+
+        # Selection change to update transcript pane
+        self.list.selectionModel().currentChanged.connect(self._on_selection_changed)
+
+    # Splitter persistence helpers
+    def apply_splitter_sizes(self, vertical: list[int] | None, horizontal: list[int] | None) -> None:
+        try:
+            if vertical:
+                self._v_splitter.setSizes(vertical)
+        except Exception:
+            pass
+        try:
+            if horizontal:
+                self._h_splitter.setSizes(horizontal)
+        except Exception:
+            pass
+
+    def get_splitter_sizes(self) -> tuple[list[int], list[int]]:
+        try:
+            v = self._v_splitter.sizes()
+        except Exception:
+            v = []
+        try:
+            h = self._h_splitter.sizes()
+        except Exception:
+            h = []
+        return v, h
 
     def _on_transcribe(self, index: QModelIndex) -> None:
         row = index.row()
@@ -406,9 +503,33 @@ class PodcastView(QWidget):
         idx = self.model.index(row)
         rect = self.list.visualRect(idx)
         self.list.viewport().update(rect)
+        # Refresh transcript pane if this is the selected row
+        cur = self.list.currentIndex()
+        if cur.isValid() and cur.row() == row:
+            self._update_transcript_for_selection()
 
     def load(self, sub) -> None:
         self._current_sub = sub
+        # Update podcast header
+        self.podcast_title.setText(sub.name)
+        meta = self._feeds_meta.get_by_url(sub.feed_url)
+        self.podcast_desc.setText(meta.description or "")
+        # Set icon if available
+        icon_url = (meta.icon_url if meta else None) or getattr(sub, "icon_url", None)
+        if icon_url:
+            pix = self._fetch_pixmap(icon_url)
+            if pix is not None:
+                # Scale to fit within a square up to 96px, preserving aspect
+                target = QSize(self.podcast_icon.maximumWidth(), self.podcast_icon.maximumHeight())
+                if target.width() <= 0 or target.height() <= 0:
+                    target = QSize(96, 96)
+                self.podcast_icon.setPixmap(
+                    pix.scaled(target, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
+                )
+            else:
+                self.podcast_icon.clear()
+        else:
+            self.podcast_icon.clear()
         episodes = self.rss.fetch_episodes(sub.feed_url)
         # Mark transcribed/failed using episodes index for this subscription key
         key = self._feeds_meta.get_or_create_key(sub.name, sub.feed_url)
@@ -444,3 +565,49 @@ class PodcastView(QWidget):
         for i, st in enumerate(statuses):
             if st != "idle":
                 self.model.setStatus(i, st)
+        # Update transcript pane for current selection
+        self._update_transcript_for_selection()
+
+    def _fetch_pixmap(self, url: str) -> QPixmap | None:
+        try:
+            from urllib.request import urlopen
+
+            with urlopen(url) as resp:
+                data = resp.read()
+            pix = QPixmap()
+            if pix.loadFromData(data):
+                return pix
+        except Exception:
+            return None
+        return None
+
+    def _on_selection_changed(self, current: QModelIndex, _prev: QModelIndex) -> None:
+        self._update_transcript_for_selection()
+
+    def _update_transcript_for_selection(self) -> None:
+        idx = self.list.currentIndex()
+        if not idx.isValid():
+            self.transcript_view.setPlainText("")
+            return
+        row = idx.row()
+        if not (0 <= row < len(self.model._episodes)):
+            self.transcript_view.setPlainText("")
+            return
+        ep = self.model._episodes[row]
+        sub = getattr(self, "_current_sub", None)
+        if sub is None:
+            self.transcript_view.setPlainText("")
+            return
+        key = self._feeds_meta.get_or_create_key(sub.name, sub.feed_url)
+        pub_iso = ep.published.isoformat() if ep.published else None
+        entry = self._episodes_index.find(key, getattr(ep, "guid", None), getattr(ep, "enclosure_url", None), pub_iso, ep.title)
+        if entry and entry.status == "transcribed" and entry.txt_path:
+            try:
+                text = Path(entry.txt_path).read_text(encoding="utf-8", errors="ignore")
+            except Exception:
+                text = "(Could not read transcript file)"
+            self.transcript_view.setPlainText(text)
+        else:
+            self.transcript_view.setPlainText(
+                "No transcript yet. Select an episode and click the transcribe icon to generate it."
+            )

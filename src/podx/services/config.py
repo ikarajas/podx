@@ -35,6 +35,9 @@ class LoggingSettings:
 class UiSettings:
     window_width: int = 1400
     window_height: int = 800
+    # Episodes view splitters
+    episodes_vertical_splitter: list[int] = field(default_factory=list)
+    episodes_horizontal_splitter: list[int] = field(default_factory=list)
 
 
 @dataclass
@@ -77,6 +80,8 @@ def load_config(path: Path | None = None) -> Config:
         ui=UiSettings(
             window_width=int(ui.get("window_width", 1400)),
             window_height=int(ui.get("window_height", 800)),
+            episodes_vertical_splitter=list(ui.get("episodes_vertical_splitter", [])),
+            episodes_horizontal_splitter=list(ui.get("episodes_horizontal_splitter", [])),
         ),
     )
 

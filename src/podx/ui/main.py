@@ -494,6 +494,13 @@ class MainWindow(QMainWindow):
         )
         self.stack.addWidget(self.search_view)
         self.stack.setCurrentWidget(self.subscriptions_view)
+        # Apply saved splitter sizes for episodes view
+        try:
+            v = cfg.ui.episodes_vertical_splitter
+            h = cfg.ui.episodes_horizontal_splitter
+            self.podcast_view.apply_splitter_sizes(v if v else None, h if h else None)
+        except Exception:
+            pass
 
     def closeEvent(self, event):  # type: ignore[override]
         # Persist current window size to config
@@ -502,6 +509,13 @@ class MainWindow(QMainWindow):
         try:
             cfg.ui.window_width = int(size.width())
             cfg.ui.window_height = int(size.height())
+            # Save splitter sizes
+            try:
+                v, h = self.podcast_view.get_splitter_sizes()
+                cfg.ui.episodes_vertical_splitter = list(v)
+                cfg.ui.episodes_horizontal_splitter = list(h)
+            except Exception:
+                pass
             save_config(cfg)
         except Exception:
             pass
