@@ -1,0 +1,30 @@
+# Normalize line endings to LF on commit and avoid noisy diffs
+* text=auto
+
+# Force LF for common text files
+*.py   text eol=lf
+*.md   text eol=lf
+*.toml text eol=lf
+*.yml  text eol=lf
+*.yaml text eol=lf
+*.json text eol=lf
+*.sh   text eol=lf
+*.vtt  text eol=lf
+*.txt  text eol=lf
+
+# Treat binaries as binary so Git doesn't alter line endings
+*.png  binary
+*.jpg  binary
+*.jpeg binary
+*.gif  binary
+*.mp3  binary
+*.wav  binary
+*.ogg  binary
+*.flac binary
+*.ico  binary
+*.icns binary
+*.pdf  binary
+*.mov  binary
+*.mp4  binary
+*.zip  binary
+*.gz   binary
