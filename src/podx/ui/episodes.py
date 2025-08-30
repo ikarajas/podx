@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from typing import List
+from pathlib import Path
 
 from PyQt6.QtCore import (
     QAbstractListModel,
@@ -10,6 +11,7 @@ from PyQt6.QtCore import (
     QSize,
     Qt,
     QEvent,
+    QTimer,
     pyqtSignal,
 )
 from PyQt6.QtGui import QColor, QFont, QMouseEvent, QPainter, QPixmap, QPalette
@@ -28,6 +30,7 @@ from ..models import FeedEpisode
 from ..services import RssService
 from ..services.feeds_meta import FeedsMetaService
 from ..services.episodes_index import EpisodesIndexService
+from ..services.ingestion import IngestionService
 
 
 class EpisodeListModel(QAbstractListModel):
@@ -37,10 +40,12 @@ class EpisodeListModel(QAbstractListModel):
     DateRole = TitleRole + 3
     ArtworkRole = TitleRole + 4
     TranscribedRole = TitleRole + 5
+    StatusRole = TitleRole + 6  # 'idle' | 'in_progress' | 'failed' | 'transcribed'
 
     def __init__(self, episodes: List[FeedEpisode] | None = None, parent: QObject | None = None) -> None:
         super().__init__(parent)
         self._episodes = episodes or []
+        self._status: list[str] = ["idle"] * len(self._episodes)
 
     # Model interface
     def rowCount(self, parent: QModelIndex = QModelIndex()) -> int:  # type: ignore[override]
@@ -62,6 +67,9 @@ class EpisodeListModel(QAbstractListModel):
             return ep.artwork_url
         if role == self.TranscribedRole:
             return ep.transcribed
+        if role == self.StatusRole:
+            row = index.row()
+            return self._status[row] if 0 <= row < len(self._status) else "idle"
         if role == Qt.ItemDataRole.DisplayRole:
             return ep.title
         return None
@@ -74,13 +82,30 @@ class EpisodeListModel(QAbstractListModel):
             int(self.DateRole): b"date",
             int(self.ArtworkRole): b"artwork",
             int(self.TranscribedRole): b"transcribed",
+            int(self.StatusRole): b"status",
         }
 
     # Helpers
     def setEpisodes(self, episodes: List[FeedEpisode]) -> None:
         self.beginResetModel()
         self._episodes = episodes
+        self._status = ["transcribed" if e.transcribed else "idle" for e in self._episodes]
         self.endResetModel()
+
+    def setStatus(self, row: int, status: str) -> None:
+        if not (0 <= row < len(self._episodes)):
+            return
+        # Ensure status list is sized to episodes
+        if len(self._status) < len(self._episodes):
+            self._status.extend(["idle"] * (len(self._episodes) - len(self._status)))
+        self._status[row] = status
+        idx = self.index(row)
+        # Emit without roles hint to ensure delegate repaints
+        try:
+            self.dataChanged.emit(idx, idx)
+        except TypeError:
+            # Fallback for signatures expecting roles list
+            self.dataChanged.emit(idx, idx, [self.StatusRole, self.TranscribedRole])
 
 
 class EpisodeDelegate(QStyledItemDelegate):
@@ -98,6 +123,8 @@ class EpisodeDelegate(QStyledItemDelegate):
         style = QWidget().style()
         self._transcribe_icon = style.standardIcon(QStyle.StandardPixmap.SP_FileDialogDetailedView)
         self._done_icon = style.standardIcon(QStyle.StandardPixmap.SP_DialogApplyButton)
+        self._progress_icon = style.standardIcon(QStyle.StandardPixmap.SP_BrowserReload)
+        self._failed_icon = style.standardIcon(QStyle.StandardPixmap.SP_MessageBoxWarning)
 
     # Painting
     def paint(self, painter: QPainter, option: QStyleOptionViewItem, index: QModelIndex) -> None:  # type: ignore[override]
@@ -176,7 +203,15 @@ class EpisodeDelegate(QStyledItemDelegate):
 
         # Transcribe icon
         icon_rect = self._icon_rect(option)
-        icon = self._done_icon if index.data(EpisodeListModel.TranscribedRole) else self._transcribe_icon
+        status = index.data(EpisodeListModel.StatusRole)
+        if status == "transcribed" or index.data(EpisodeListModel.TranscribedRole):
+            icon = self._done_icon
+        elif status == "in_progress":
+            icon = self._progress_icon
+        elif status == "failed":
+            icon = self._failed_icon
+        else:
+            icon = self._transcribe_icon
         icon.paint(painter, icon_rect)
 
         painter.restore()
@@ -230,7 +265,10 @@ class EpisodeDelegate(QStyledItemDelegate):
         if event.type() == QEvent.Type.MouseButtonRelease:
             me: QMouseEvent = event  # type: ignore[assignment]
             if me.button() == Qt.MouseButton.LeftButton and self._icon_rect(option).contains(me.pos()):
-                self.transcribeRequested.emit(index)
+                # Ignore clicks while in progress
+                status = index.data(EpisodeListModel.StatusRole)
+                if status != "in_progress":
+                    self.transcribeRequested.emit(index)
                 return True
         return super().editorEvent(event, model, option, index)
 
@@ -238,12 +276,16 @@ class EpisodeDelegate(QStyledItemDelegate):
 class PodcastView(QWidget):
     """View showing a podcast's episodes."""
 
-    def __init__(self, rss: RssService, feeds_meta: FeedsMetaService, episodes_index: EpisodesIndexService, on_back) -> None:
+    def __init__(self, rss: RssService, feeds_meta: FeedsMetaService, episodes_index: EpisodesIndexService, ingestion: IngestionService, on_back) -> None:
         super().__init__()
         self.rss = rss
         self._feeds_meta = feeds_meta
         self._episodes_index = episodes_index
+        self._ingestion = ingestion
         self._insert_chunk = 200
+        # Simple single-worker queue to serialize transcriptions
+        from concurrent.futures import ThreadPoolExecutor
+        self._worker = ThreadPoolExecutor(max_workers=1)
         layout = QVBoxLayout(self)
         header = QHBoxLayout()
         back = QPushButton("Back")
@@ -256,20 +298,112 @@ class PodcastView(QWidget):
         self.list.setModel(self.model)
         self.delegate = EpisodeDelegate(self.list)
         self.list.setItemDelegate(self.delegate)
+        self.delegate.transcribeRequested.connect(self._on_transcribe)
         # Quick wins: uniform sizes and batched layout
         self.list.setUniformItemSizes(True)
         self.list.setLayoutMode(QListView.LayoutMode.Batched)
         self.list.setBatchSize(256)
         layout.addWidget(self.list, 1)
 
+    def _on_transcribe(self, index: QModelIndex) -> None:
+        row = index.row()
+        if not (0 <= row < self.model.rowCount()):
+            return
+        self.model.setStatus(row, "in_progress")
+        ep = self.model._episodes[row]
+        # We need the current subscription context; fetch it by reusing the last loaded key
+        # For simplicity, recompute from a minimal Subscription-like object
+        # Assume we have the latest 'sub' passed to load stored
+        sub = getattr(self, "_current_sub", None)
+        if sub is None:
+            self.model.setStatus(row, "failed")
+            return
+        enclosure = getattr(ep, "enclosure_url", None)
+        guid = getattr(ep, "guid", None)
+        if not enclosure:
+            self.model.setStatus(row, "failed")
+            return
+        # Run download + ingestion in background queue (keeps UI responsive)
+        def do_work():
+            from urllib.request import urlopen
+            import tempfile, os
+            try:
+                with urlopen(enclosure) as resp:
+                    data = resp.read()
+                fd, tmp_path = tempfile.mkstemp(suffix=".mp3")
+                os.close(fd)
+                with open(tmp_path, "wb") as f:
+                    f.write(data)
+            except Exception as e:
+                return (False, str(e), None)
+            try:
+                result = self._ingestion.ingest_episode(
+                    Path(tmp_path),
+                    podcast=sub.name,
+                    episode=ep.title,
+                    force=False,
+                    reporter=None,
+                    feed_url=sub.feed_url,
+                    enclosure_url=enclosure,
+                    guid=guid,
+                )
+                return (True, None, result)
+            except Exception as e:
+                return (False, str(e), None)
+
+        fut = self._worker.submit(do_work)
+
+        def _done(_f):
+            ok, err, result = _f.result()
+            key = self._feeds_meta.get_or_create_key(sub.name, sub.feed_url)
+            pub_iso = ep.published.isoformat() if ep.published else None
+            def update_ui():
+                if ok and result is not None:
+                    self._episodes_index.mark_transcribed(
+                        key,
+                        title=ep.title,
+                        published_date=pub_iso or None,
+                        guid=guid,
+                        enclosure_url=enclosure,
+                        episode_dir=result.path,
+                        vtt_path=result.transcript.vtt_path,
+                        txt_path=result.transcript.txt_path,
+                    )
+                    self.model._episodes[row].transcribed = True
+                    self.model.setStatus(row, "transcribed")
+                    # Force a repaint to reflect icon change immediately
+                    self.list.viewport().update()
+                else:
+                    self._episodes_index.mark_failed(
+                        key,
+                        title=ep.title,
+                        published_date=pub_iso or None,
+                        guid=guid,
+                        enclosure_url=enclosure,
+                        error=str(err or "error"),
+                    )
+                    self.model.setStatus(row, "failed")
+                    self.list.viewport().update()
+            QTimer.singleShot(0, update_ui)
+
+        fut.add_done_callback(_done)
+
     def load(self, sub) -> None:
+        self._current_sub = sub
         episodes = self.rss.fetch_episodes(sub.feed_url)
-        # Mark transcribed using episodes index for this subscription key
+        # Mark transcribed/failed using episodes index for this subscription key
         key = self._feeds_meta.get_or_create_key(sub.name, sub.feed_url)
+        statuses: list[str] = []
         for ep in episodes:
             pub_iso = ep.published.isoformat() if ep.published else None
             entry = self._episodes_index.find(key, ep.guid, ep.enclosure_url, pub_iso, ep.title)
-            ep.transcribed = bool(entry and entry.status == "transcribed")
+            if entry and entry.status == "transcribed":
+                ep.transcribed = True
+                statuses.append("transcribed")
+            elif entry and entry.status == "failed":
+                statuses.append("failed")
+            else:
+                statuses.append("idle")
         # Bulk insert hygiene: clear once, then insert in chunks with updates disabled
         self.model.beginResetModel()
         self.model._episodes = []
@@ -287,3 +421,7 @@ class PodcastView(QWidget):
                 self.model.endInsertRows()
         finally:
             self.list.setUpdatesEnabled(True)
+        # Apply initial statuses
+        for i, st in enumerate(statuses):
+            if st != "idle":
+                self.model.setStatus(i, st)

@@ -35,6 +35,7 @@ from podx.services.subscriptions import SubscriptionService
 from podx.services.feeds_meta import FeedsMetaService
 from podx.services import RssService
 from podx.services.episodes_index import EpisodesIndexService
+from podx.services.ingestion import IngestionService
 from podx.ui.episodes import PodcastView
 
 
@@ -482,7 +483,8 @@ class MainWindow(QMainWindow):
             self.show_search,
         )
         self.stack.addWidget(self.subscriptions_view)
-        self.podcast_view = PodcastView(self.rss_service, self.feeds_meta_service, self.episodes_index_service, on_back=self.show_subscriptions)
+        self.ingestion_service = IngestionService(cfg, self.feeds_meta_service, self.episodes_index_service)
+        self.podcast_view = PodcastView(self.rss_service, self.feeds_meta_service, self.episodes_index_service, self.ingestion_service, on_back=self.show_subscriptions)
         self.stack.addWidget(self.podcast_view)
         self.search_view = SearchView(
             self.directory_service,

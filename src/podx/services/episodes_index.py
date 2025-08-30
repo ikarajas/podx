@@ -32,12 +32,13 @@ class EpisodeIndexEntry:
     published_date: str | None
     guid: str | None = None
     enclosure_url: str | None = None
-    status: str = "transcribed"
+    status: str = "transcribed"  # one of: transcribed, failed
     episode_dir: str | None = None
     vtt_path: str | None = None
     txt_path: str | None = None
     created_at: str | None = None
     updated_at: str | None = None
+    error: str | None = None
 
 
 class EpisodesIndexService:
@@ -99,6 +100,32 @@ class EpisodesIndexService:
         entry.episode_dir = str(episode_dir)
         entry.vtt_path = str(vtt_path)
         entry.txt_path = str(txt_path)
+        entry.error = None
+        entry.updated_at = now
+        if not entry.created_at:
+            entry.created_at = now
+        mp[episode_id] = entry
+        self._save_map(key, mp)
+        return entry
+
+    def mark_failed(
+        self,
+        key: str,
+        *,
+        title: str,
+        published_date: Optional[str],
+        guid: Optional[str],
+        enclosure_url: Optional[str],
+        error: str,
+    ) -> EpisodeIndexEntry:
+        mp = self._load_map(key)
+        episode_id = _make_episode_id(guid, enclosure_url, published_date, title)
+        now = datetime.now().isoformat()
+        entry = mp.get(episode_id) or EpisodeIndexEntry(
+            episode_id=episode_id, title=title, published_date=published_date, guid=guid, enclosure_url=enclosure_url
+        )
+        entry.status = "failed"
+        entry.error = error
         entry.updated_at = now
         if not entry.created_at:
             entry.created_at = now
@@ -108,4 +135,3 @@ class EpisodesIndexService:
 
 
 __all__ = ["EpisodesIndexService", "EpisodeIndexEntry"]
-
