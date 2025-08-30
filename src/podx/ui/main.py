@@ -5,7 +5,7 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 
 from PyQt6.QtCore import Qt, QAbstractListModel, QModelIndex, QSize, QRect
-from PyQt6.QtGui import QIcon, QPixmap, QPainter, QMouseEvent
+from PyQt6.QtGui import QIcon, QPixmap, QPainter, QMouseEvent, QPalette, QColor
 from PyQt6.QtWidgets import (
     QApplication,
     QLabel,
@@ -28,6 +28,7 @@ from PyQt6.QtWidgets import (
 )
 
 from podx.app import get_config
+from podx.services.config import save_config
 from podx.models import PodcastSearchResult, Subscription
 from podx.services.directory import DirectoryService
 from podx.services.subscriptions import SubscriptionService
@@ -90,7 +91,7 @@ class _SubscriptionDelegate(QStyledItemDelegate):
         self._margin = 8
         self._thumb = 48
         self._icon_size = 20
-        self._item_height = 72
+        self._item_height = 88
         self._pix_cache: dict[str, QPixmap] = {}
         style = QWidget().style()
         self._open_icon = style.standardIcon(QStyle.StandardPixmap.SP_DirOpenIcon)
@@ -115,17 +116,26 @@ class _SubscriptionDelegate(QStyledItemDelegate):
         right_actions_width = 2 * (self._icon_size + self._margin)
         text_rect = rect.adjusted(text_left - rect.left(), 0, -right_actions_width - self._margin, 0)
         # Title (top)
-        painter.setPen(option.palette.text().color())
+        sel = bool(option.state & QStyle.StateFlag.State_Selected)
+        title_col = option.palette.highlightedText().color() if sel else option.palette.text().color()
+        painter.setPen(title_col)
         title = index.data(Qt.ItemDataRole.DisplayRole)
         painter.drawText(text_rect.adjusted(0, 4, 0, 0), int(Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft), title)
-        # Description (bottom)
+        # Description (bottom, 2 lines word-wrapped)
         desc = index.data(_SubscriptionListModel.DescriptionRole) or ""
         if desc:
             snippet = desc.replace("\n", " ")
-            metrics = painter.fontMetrics()
-            elided = metrics.elidedText(snippet, Qt.TextElideMode.ElideRight, text_rect.width())
-            painter.setPen(option.palette.mid().color())
-            painter.drawText(text_rect.adjusted(0, self._item_height // 2, 0, -4), int(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft), elided)
+            # Higher-contrast secondary text; adapt to selection
+            base = option.palette.highlightedText().color() if sel else option.palette.text().color()
+            sec = QColor(base)
+            if not sel:
+                sec.setAlpha(200)
+            painter.setPen(sec)
+            # Allocate approx 2 lines below title
+            desc_top = text_rect.top() + 24
+            desc_height = min(2 * painter.fontMetrics().lineSpacing(), text_rect.height() - 28)
+            desc_rect = QRect(text_rect.left(), desc_top, text_rect.width(), desc_height)
+            painter.drawText(desc_rect, Qt.TextFlag.TextWordWrap, snippet)
         # Action icons (right)
         y = rect.top() + (rect.height() - self._icon_size) // 2
         delete_rect = QRect(rect.right() - self._margin - self._icon_size, y, self._icon_size, self._icon_size)
@@ -451,6 +461,11 @@ class MainWindow(QMainWindow):
     def __init__(self) -> None:
         super().__init__()
         cfg = get_config()
+        # Set initial size from config (defaults 1400x800)
+        try:
+            self.resize(cfg.ui.window_width, cfg.ui.window_height)
+        except Exception:
+            self.resize(1400, 800)
         self.subscription_service = SubscriptionService(cfg)
         self.feeds_meta_service = FeedsMetaService(cfg)
         self.directory_service = DirectoryService(cfg)
@@ -475,6 +490,18 @@ class MainWindow(QMainWindow):
         )
         self.stack.addWidget(self.search_view)
         self.stack.setCurrentWidget(self.subscriptions_view)
+
+    def closeEvent(self, event):  # type: ignore[override]
+        # Persist current window size to config
+        cfg = get_config()
+        size = self.size()
+        try:
+            cfg.ui.window_width = int(size.width())
+            cfg.ui.window_height = int(size.height())
+            save_config(cfg)
+        except Exception:
+            pass
+        return super().closeEvent(event)
 
     def show_podcast(self, sub: Subscription) -> None:
         self.podcast_view.load(sub)

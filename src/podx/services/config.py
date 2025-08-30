@@ -7,7 +7,7 @@ settings structures.  Configuration is loaded from a YAML (or JSON) file via
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, asdict, field
 from pathlib import Path
 import json
 import os
@@ -32,11 +32,18 @@ class LoggingSettings:
 
 
 @dataclass
+class UiSettings:
+    window_width: int = 1400
+    window_height: int = 800
+
+
+@dataclass
 class Config:
     root_dir: Path
     whisper: WhisperSettings
     logging: LoggingSettings
     save_audio_copy: bool = False
+    ui: UiSettings = field(default_factory=UiSettings)
 
 
 def load_config(path: Path | None = None) -> Config:
@@ -54,6 +61,7 @@ def load_config(path: Path | None = None) -> Config:
         data = {}
     whisper = data.get("whisper", {})
     logging = data.get("logging", {})
+    ui = data.get("ui", {})
     return Config(
         root_dir=Path(data.get("root_dir", "./podx")),
         whisper=WhisperSettings(
@@ -66,13 +74,42 @@ def load_config(path: Path | None = None) -> Config:
             file_max_mb=int(logging.get("file_max_mb", 5)),
         ),
         save_audio_copy=bool(data.get("save_audio_copy", False)),
+        ui=UiSettings(
+            window_width=int(ui.get("window_width", 1400)),
+            window_height=int(ui.get("window_height", 800)),
+        ),
     )
+
+
+def save_config(cfg: Config, path: Path | None = None) -> None:
+    """Persist configuration to YAML (preferred) or JSON.
+
+    This overwrites the file while keeping only known fields.
+    """
+    if path is None:
+        env = os.environ.get("PODX_CONFIG")
+        if env:
+            path = Path(env)
+        else:
+            path = Path.home() / ".podx" / "config.yaml"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    data = {
+        "root_dir": str(cfg.root_dir),
+        "whisper": asdict(cfg.whisper),
+        "logging": asdict(cfg.logging),
+        "save_audio_copy": cfg.save_audio_copy,
+        "ui": asdict(cfg.ui),
+    }
+    text = yaml.safe_dump(data, sort_keys=False) if yaml else json.dumps(data, indent=2)
+    path.write_text(text)
 
 
 __all__ = [
     "Config",
     "WhisperSettings",
     "LoggingSettings",
+    "UiSettings",
     "load_config",
+    "save_config",
 ]
 

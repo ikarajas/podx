@@ -101,7 +101,8 @@ class EpisodeDelegate(QStyledItemDelegate):
     def paint(self, painter: QPainter, option: QStyleOptionViewItem, index: QModelIndex) -> None:  # type: ignore[override]
         painter.save()
         rect = option.rect
-        if option.state & QStyle.StateFlag.State_Selected:
+        selected = bool(option.state & QStyle.StateFlag.State_Selected)
+        if selected:
             painter.fillRect(rect, option.palette.highlight())
         # Fixed-size artwork to avoid per-paint scaling
         art_rect = QRect(
@@ -136,7 +137,12 @@ class EpisodeDelegate(QStyledItemDelegate):
         desc_font = QFont(option.font)
         desc_font.setPointSize(option.font.pointSize() - 1)
         painter.setFont(desc_font)
-        painter.setPen(QColor("gray"))
+        # Higher-contrast secondary text in dark/light and when selected
+        base_sec = option.palette.highlightedText().color() if selected else option.palette.text().color()
+        sec = QColor(base_sec)
+        if not selected:
+            sec.setAlpha(200)
+        painter.setPen(sec)
         desc_height = 2 * painter.fontMetrics().lineSpacing()
         desc_rect = QRect(text_left, y, text_width, desc_height)
         painter.drawText(desc_rect, Qt.TextFlag.TextWordWrap, desc)
@@ -156,7 +162,12 @@ class EpisodeDelegate(QStyledItemDelegate):
         meta_font = QFont(option.font)
         meta_font.setPointSize(option.font.pointSize() - 2)
         painter.setFont(meta_font)
-        painter.setPen(option.palette.color(QPalette.ColorRole.Mid))
+        # Date/duration line: ensure strong contrast
+        base_meta = option.palette.highlightedText().color() if selected else option.palette.text().color()
+        meta_pen = QColor(base_meta)
+        if not selected:
+            meta_pen.setAlpha(220)
+        painter.setPen(meta_pen)
         meta_height = painter.fontMetrics().lineSpacing()
         meta_rect = QRect(text_left, y + self._margin, text_width, meta_height)
         painter.drawText(meta_rect, Qt.TextFlag.TextSingleLine, meta)
