@@ -42,6 +42,15 @@ Runtime configuration is read from `~/.podx/config.yaml` (or the file pointed to
 by the `PODX_CONFIG` environment variable).  See [AGENTS.md](AGENTS.md) for a
 deeper look at the project architecture and contribution guidelines.
 
+### Feed metadata cache and subscription keys
+
+The UI caches podcast channel metadata (title, description, icon) per
+subscription to keep the subscriptions list fast. This cache lives in
+`feeds_meta.json` under your configured `root_dir` and is keyed by a stable,
+human‑readable subscription key of the form `slug--shortid` (derived from the
+podcast title and a digest of the feed URL). See the detailed docs in
+[`docs/feeds-metadata.md`](docs/feeds-metadata.md).
+
 ## Project Layout
 
 - `pyproject.toml`: Package metadata and console script entrypoint

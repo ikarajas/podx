@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from pathlib import Path
+from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime
 
 from PyQt6.QtCore import Qt, QAbstractListModel, QModelIndex, QSize, QRect
 from PyQt6.QtGui import QIcon, QPixmap, QPainter, QMouseEvent
@@ -29,6 +31,7 @@ from podx.app import get_config
 from podx.models import PodcastSearchResult, Subscription
 from podx.services.directory import DirectoryService
 from podx.services.subscriptions import SubscriptionService
+from podx.services.feeds_meta import FeedsMetaService
 from podx.services import RssService
 from podx.ui.episodes import PodcastView
 
@@ -36,10 +39,13 @@ from podx.ui.episodes import PodcastView
 class _SubscriptionListModel(QAbstractListModel):
     NameRole = Qt.ItemDataRole.UserRole + 1
     IconRole = NameRole + 1
+    DescriptionRole = IconRole + 1
 
-    def __init__(self) -> None:
+    def __init__(self, feeds_meta: FeedsMetaService) -> None:
         super().__init__()
         self._subs: list[Subscription] = []
+        self._feeds_meta = feeds_meta
+        self._descriptions: list[str | None] = []
 
     def rowCount(self, parent: QModelIndex = QModelIndex()) -> int:  # type: ignore[override]
         return len(self._subs)
@@ -52,16 +58,23 @@ class _SubscriptionListModel(QAbstractListModel):
             return sub.name
         if role == self.IconRole:
             return sub.icon_url
+        if role == self.DescriptionRole:
+            return self._descriptions[index.row()] if index.row() < len(self._descriptions) else None
         if role == Qt.ItemDataRole.UserRole:
             return sub
         return None
 
     def roleNames(self):  # type: ignore[override]
-        return {int(self.NameRole): b"name", int(self.IconRole): b"icon"}
+        return {int(self.NameRole): b"name", int(self.IconRole): b"icon", int(self.DescriptionRole): b"description"}
 
     def setSubscriptions(self, subs: list[Subscription]) -> None:
         self.beginResetModel()
         self._subs = list(subs)
+        # populate descriptions from cache
+        self._descriptions = []
+        for s in self._subs:
+            meta = self._feeds_meta.get_by_url(s.feed_url)
+            self._descriptions.append(meta.description if meta else None)
         self.endResetModel()
 
     def indexOfFeed(self, feed_url: str) -> int:
@@ -77,7 +90,7 @@ class _SubscriptionDelegate(QStyledItemDelegate):
         self._margin = 8
         self._thumb = 48
         self._icon_size = 20
-        self._item_height = 64
+        self._item_height = 72
         self._pix_cache: dict[str, QPixmap] = {}
         style = QWidget().style()
         self._open_icon = style.standardIcon(QStyle.StandardPixmap.SP_DirOpenIcon)
@@ -97,16 +110,22 @@ class _SubscriptionDelegate(QStyledItemDelegate):
             pix = self._pix(icon_url)
             if pix:
                 painter.drawPixmap(icon_rect.topLeft(), pix)
-        # Title
+        # Text block (title + description snippet)
         text_left = icon_rect.right() + self._margin
         right_actions_width = 2 * (self._icon_size + self._margin)
-        text_width = rect.width() - (text_left - rect.left()) - right_actions_width - self._margin
+        text_rect = rect.adjusted(text_left - rect.left(), 0, -right_actions_width - self._margin, 0)
+        # Title (top)
         painter.setPen(option.palette.text().color())
-        painter.drawText(
-            rect.adjusted(text_left - rect.left(), 0, -right_actions_width - self._margin, 0),
-            int(Qt.AlignmentFlag.AlignVCenter),
-            index.data(Qt.ItemDataRole.DisplayRole),
-        )
+        title = index.data(Qt.ItemDataRole.DisplayRole)
+        painter.drawText(text_rect.adjusted(0, 4, 0, 0), int(Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft), title)
+        # Description (bottom)
+        desc = index.data(_SubscriptionListModel.DescriptionRole) or ""
+        if desc:
+            snippet = desc.replace("\n", " ")
+            metrics = painter.fontMetrics()
+            elided = metrics.elidedText(snippet, Qt.TextElideMode.ElideRight, text_rect.width())
+            painter.setPen(option.palette.mid().color())
+            painter.drawText(text_rect.adjusted(0, self._item_height // 2, 0, -4), int(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft), elided)
         # Action icons (right)
         y = rect.top() + (rect.height() - self._icon_size) // 2
         delete_rect = QRect(rect.right() - self._margin - self._icon_size, y, self._icon_size, self._icon_size)
@@ -173,13 +192,16 @@ class _SubscriptionDelegate(QStyledItemDelegate):
 class SubscriptionListView(QWidget):
     """Widget displaying current subscriptions with actions."""
 
-    def __init__(self, service: SubscriptionService, on_select, on_search) -> None:
+    def __init__(self, service: SubscriptionService, feeds_meta: FeedsMetaService, rss: RssService, on_select, on_search) -> None:
         super().__init__()
         self.service = service
+        self.feeds_meta = feeds_meta
+        self.rss = rss
         self._on_select = on_select
+        self._executor = ThreadPoolExecutor(max_workers=2)
         layout = QVBoxLayout(self)
         self.list = QListView()
-        self.model = _SubscriptionListModel()
+        self.model = _SubscriptionListModel(self.feeds_meta)
         self.list.setModel(self.model)
         # Parent the delegate to this container so it can call our handlers
         self.delegate = _SubscriptionDelegate(self)
@@ -239,7 +261,13 @@ class SubscriptionListView(QWidget):
         self.refresh()
 
     def refresh(self) -> None:
-        self.model.setSubscriptions(self.service.list_subscriptions())
+        subs = self.service.list_subscriptions()
+        self.model.setSubscriptions(subs)
+        # Background refresh of stale/missing descriptions
+        for row, sub in enumerate(subs):
+            key = self.feeds_meta.get_or_create_key(sub.name, sub.feed_url)
+            if self.feeds_meta.is_stale(key) or not self.model._descriptions[row]:
+                self._executor.submit(self._refresh_one, row, sub, key)
 
     def select_by_feed(self, feed_url: str) -> None:
         row = self.model.indexOfFeed(feed_url)
@@ -247,6 +275,36 @@ class SubscriptionListView(QWidget):
             idx = self.model.index(row)
             self.list.setCurrentIndex(idx)
             self.list.scrollTo(idx)
+
+    # Worker: refresh a single subscription's metadata
+    def _refresh_one(self, row: int, sub: Subscription, key: str) -> None:
+        meta = self.feeds_meta.get_by_url(sub.feed_url)
+        etag = meta.etag if meta else None
+        last_mod = meta.last_modified if meta else None
+        try:
+            title, description, icon_url, new_etag, new_last_mod = self.rss.fetch_channel_meta(
+                sub.feed_url, etag=etag, last_modified=last_mod
+            )
+        except Exception:
+            return
+        # Update cache (even if description None, we may update etag/last_fetch)
+        self.feeds_meta.set_meta(
+            key,
+            title=title or sub.name,
+            description=description,
+            icon_url=icon_url or getattr(sub, "icon_url", None),
+            etag=new_etag or etag,
+            last_modified=new_last_mod or last_mod,
+            last_fetch=datetime.now().isoformat(),
+        )
+        # Update model description on UI thread via signal/slot; here we schedule to main thread using Qt
+        # but to keep it simple, we directly update and emit dataChanged if we're still in same process
+        # Find index and emit change
+        idx = self.model.index(row)
+        # Update model cache
+        if row < len(self.model._descriptions):
+            self.model._descriptions[row] = description
+        self.model.dataChanged.emit(idx, idx, [self.model.DescriptionRole])
 
 
 class SearchView(QWidget):
@@ -394,12 +452,17 @@ class MainWindow(QMainWindow):
         super().__init__()
         cfg = get_config()
         self.subscription_service = SubscriptionService(cfg)
+        self.feeds_meta_service = FeedsMetaService(cfg)
         self.directory_service = DirectoryService(cfg)
         self.rss_service = RssService()
         self.stack = QStackedWidget()
         self.setCentralWidget(self.stack)
         self.subscriptions_view = SubscriptionListView(
-            self.subscription_service, self.show_podcast, self.show_search
+            self.subscription_service,
+            self.feeds_meta_service,
+            self.rss_service,
+            self.show_podcast,
+            self.show_search,
         )
         self.stack.addWidget(self.subscriptions_view)
         self.podcast_view = PodcastView(self.rss_service, on_back=self.show_subscriptions)

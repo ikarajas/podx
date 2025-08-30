@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from typing import List
-from urllib.request import urlopen
+from typing import List, Optional, Tuple
+from urllib.request import urlopen, Request
 import xml.etree.ElementTree as ET
 from email.utils import parsedate_to_datetime
 
@@ -59,6 +59,40 @@ class RssService:
                 )
             )
         return episodes
+
+    def fetch_channel_meta(
+        self,
+        feed_url: str,
+        *,
+        etag: Optional[str] = None,
+        last_modified: Optional[str] = None,
+    ) -> Tuple[Optional[str], Optional[str], Optional[str], Optional[str], Optional[str]]:
+        """Return (title, description, icon_url, new_etag, new_last_modified).
+
+        Sends conditional headers when provided and returns ``(None, None, None, etag, last_modified)``
+        when a 304 is received (best-effort; urllib does not expose status on older Python versions,
+        so failures fall back to parsing).
+        """
+        headers = {}
+        if etag:
+            headers["If-None-Match"] = etag
+        if last_modified:
+            headers["If-Modified-Since"] = last_modified
+        req = Request(feed_url, headers=headers)
+        with urlopen(req) as resp:
+            new_etag = resp.headers.get("ETag")
+            new_last_mod = resp.headers.get("Last-Modified")
+            data = resp.read()
+        try:
+            root = ET.fromstring(data)
+        except ET.ParseError:
+            return None, None, None, new_etag, new_last_mod
+        title = root.findtext("channel/title")
+        description = root.findtext("channel/description")
+        # Prefer channel-level itunes:image, fallback to item-level or None
+        image_el = root.find("channel/" + self.ITUNES_NS + "image")
+        icon_url = image_el.get("href") if image_el is not None else None
+        return title, description, icon_url, new_etag, new_last_mod
 
 
 __all__ = ["RssService", "_parse_duration"]

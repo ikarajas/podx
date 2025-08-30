@@ -31,3 +31,13 @@ in other front‑ends. A future Qt application can plug in its own
   committing.
 - Import configuration, progress reporting, and Whisper helpers from the
   `podx.services` namespace; legacy top-level modules have been removed.
+
+## Feed Metadata and Subscription Keys
+
+- UI reads cached channel metadata via `podx.services.feeds_meta.FeedsMetaService`.
+- Keys are human‑readable (`slug--shortid`) and stable per subscription; services
+  that write per‑podcast data should use `FeedsMetaService.podcast_dir(name, feed_url)`
+  instead of hand‑rolled paths.
+- Network access and parsing (e.g., conditional RSS fetch) lives in services
+  (`RssService`), not in UI code. The UI may trigger background refreshes but
+  should avoid blocking the event loop.
