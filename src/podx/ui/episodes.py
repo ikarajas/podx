@@ -127,7 +127,7 @@ class EpisodeDelegate(QStyledItemDelegate):
         title_font.setPointSize(option.font.pointSize() + 2)
         painter.setFont(title_font)
         painter.setPen(option.palette.text().color())
-        painter.drawText(QRect(text_left, y, text_width, 24), Qt.TextSingleLine, title)
+        painter.drawText(QRect(text_left, y, text_width, 24), Qt.TextFlag.TextSingleLine, title)
         y += 24
 
         # Description
@@ -138,7 +138,7 @@ class EpisodeDelegate(QStyledItemDelegate):
         painter.setPen(QColor("gray"))
         desc_height = 2 * painter.fontMetrics().lineSpacing()
         desc_rect = QRect(text_left, y, text_width, desc_height)
-        painter.drawText(desc_rect, Qt.TextWordWrap, desc)
+        painter.drawText(desc_rect, Qt.TextFlag.TextWordWrap, desc)
         y = desc_rect.bottom()
 
         # Meta line
@@ -158,7 +158,7 @@ class EpisodeDelegate(QStyledItemDelegate):
         painter.setPen(option.palette.color(QPalette.ColorRole.Mid))
         meta_height = painter.fontMetrics().lineSpacing()
         meta_rect = QRect(text_left, y + self._margin, text_width, meta_height)
-        painter.drawText(meta_rect, Qt.TextSingleLine, meta)
+        painter.drawText(meta_rect, Qt.TextFlag.TextSingleLine, meta)
 
         # Transcribe icon
         icon_rect = self._icon_rect(option)
@@ -236,4 +236,3 @@ class PodcastView(QWidget):
     def load(self, sub) -> None:
         episodes = self.rss.fetch_episodes(sub.feed_url)
         self.model.setEpisodes(episodes)
-*** End of File ***
