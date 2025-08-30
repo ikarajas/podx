@@ -2,12 +2,13 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from PyQt6.QtCore import Qt
-from PyQt6.QtGui import QIcon, QPixmap
+from PyQt6.QtCore import Qt, QAbstractListModel, QModelIndex, QSize, QRect
+from PyQt6.QtGui import QIcon, QPixmap, QPainter, QMouseEvent
 from PyQt6.QtWidgets import (
     QApplication,
     QLabel,
     QLineEdit,
+    QListView,
     QListWidget,
     QListWidgetItem,
     QMainWindow,
@@ -16,6 +17,10 @@ from PyQt6.QtWidgets import (
     QSplitter,
     QSizePolicy,
     QStackedWidget,
+    QStyledItemDelegate,
+    QStyle,
+    QStyleOptionViewItem,
+    QMessageBox,
     QVBoxLayout,
     QWidget,
 )
@@ -28,39 +33,220 @@ from podx.services import RssService
 from podx.ui.episodes import PodcastView
 
 
+class _SubscriptionListModel(QAbstractListModel):
+    NameRole = Qt.ItemDataRole.UserRole + 1
+    IconRole = NameRole + 1
+
+    def __init__(self) -> None:
+        super().__init__()
+        self._subs: list[Subscription] = []
+
+    def rowCount(self, parent: QModelIndex = QModelIndex()) -> int:  # type: ignore[override]
+        return len(self._subs)
+
+    def data(self, index: QModelIndex, role: int = Qt.ItemDataRole.DisplayRole):  # type: ignore[override]
+        if not index.isValid() or not (0 <= index.row() < len(self._subs)):
+            return None
+        sub = self._subs[index.row()]
+        if role == Qt.ItemDataRole.DisplayRole or role == self.NameRole:
+            return sub.name
+        if role == self.IconRole:
+            return sub.icon_url
+        if role == Qt.ItemDataRole.UserRole:
+            return sub
+        return None
+
+    def roleNames(self):  # type: ignore[override]
+        return {int(self.NameRole): b"name", int(self.IconRole): b"icon"}
+
+    def setSubscriptions(self, subs: list[Subscription]) -> None:
+        self.beginResetModel()
+        self._subs = list(subs)
+        self.endResetModel()
+
+    def indexOfFeed(self, feed_url: str) -> int:
+        for i, s in enumerate(self._subs):
+            if s.feed_url == feed_url:
+                return i
+        return -1
+
+
+class _SubscriptionDelegate(QStyledItemDelegate):
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self._margin = 8
+        self._thumb = 48
+        self._icon_size = 20
+        self._item_height = 64
+        self._pix_cache: dict[str, QPixmap] = {}
+        style = QWidget().style()
+        self._open_icon = style.standardIcon(QStyle.StandardPixmap.SP_DirOpenIcon)
+        self._delete_icon = style.standardIcon(QStyle.StandardPixmap.SP_TrashIcon)
+
+    def paint(self, painter: QPainter, option: QStyleOptionViewItem, index: QModelIndex) -> None:  # type: ignore[override]
+        painter.save()
+        rect = option.rect
+        if option.state & QStyle.StateFlag.State_Selected:
+            painter.fillRect(rect, option.palette.highlight())
+        # Icon (left)
+        icon_rect = rect.adjusted(self._margin, self._margin, 0, 0)
+        icon_rect.setWidth(self._thumb)
+        icon_rect.setHeight(self._thumb)
+        icon_url = index.data(_SubscriptionListModel.IconRole)
+        if icon_url:
+            pix = self._pix(icon_url)
+            if pix:
+                painter.drawPixmap(icon_rect.topLeft(), pix)
+        # Title
+        text_left = icon_rect.right() + self._margin
+        right_actions_width = 2 * (self._icon_size + self._margin)
+        text_width = rect.width() - (text_left - rect.left()) - right_actions_width - self._margin
+        painter.setPen(option.palette.text().color())
+        painter.drawText(
+            rect.adjusted(text_left - rect.left(), 0, -right_actions_width - self._margin, 0),
+            int(Qt.AlignmentFlag.AlignVCenter),
+            index.data(Qt.ItemDataRole.DisplayRole),
+        )
+        # Action icons (right)
+        y = rect.top() + (rect.height() - self._icon_size) // 2
+        delete_rect = QRect(rect.right() - self._margin - self._icon_size, y, self._icon_size, self._icon_size)
+        open_rect = QRect(delete_rect.left() - self._margin - self._icon_size, y, self._icon_size, self._icon_size)
+        self._open_icon.paint(painter, open_rect)
+        self._delete_icon.paint(painter, delete_rect)
+        painter.restore()
+
+    def sizeHint(self, option: QStyleOptionViewItem, index: QModelIndex) -> QSize:  # type: ignore[override]
+        return QSize(-1, self._item_height)
+
+    def editorEvent(self, event, model, option, index):  # type: ignore[override]
+        if event.type() == event.Type.MouseButtonRelease:
+            me: QMouseEvent = event  # type: ignore[assignment]
+            y = option.rect.top() + (option.rect.height() - self._icon_size) // 2
+            delete_rect = QRect(
+                option.rect.right() - self._margin - self._icon_size,
+                y,
+                self._icon_size,
+                self._icon_size,
+            )
+            open_rect = QRect(
+                delete_rect.left() - self._margin - self._icon_size,
+                y,
+                self._icon_size,
+                self._icon_size,
+            )
+            if me.button() == Qt.MouseButton.LeftButton:
+                if delete_rect.contains(me.pos()):
+                    self.parent().deleteRequested(index)  # type: ignore[attr-defined]
+                    return True
+                if open_rect.contains(me.pos()):
+                    self.parent().openRequested(index)  # type: ignore[attr-defined]
+                    return True
+        return super().editorEvent(event, model, option, index)
+
+    def _pix(self, url: str) -> QPixmap | None:
+        if url in self._pix_cache:
+            return self._pix_cache[url]
+        p = QPixmap()
+        try:
+            if Path(url).exists():
+                p.load(url)
+            elif url.startswith("http"):
+                from urllib.request import urlopen
+
+                with urlopen(url) as resp:
+                    data = resp.read()
+                p.loadFromData(data)
+        except Exception:
+            return None
+        if not p.isNull():
+            scaled = p.scaled(
+                self._thumb,
+                self._thumb,
+                Qt.AspectRatioMode.KeepAspectRatio,
+                Qt.TransformationMode.SmoothTransformation,
+            )
+            self._pix_cache[url] = scaled
+            return scaled
+        return None
+
+
 class SubscriptionListView(QWidget):
-    """Widget displaying current subscriptions."""
+    """Widget displaying current subscriptions with actions."""
 
     def __init__(self, service: SubscriptionService, on_select, on_search) -> None:
         super().__init__()
         self.service = service
+        self._on_select = on_select
         layout = QVBoxLayout(self)
-        self.list_widget = QListWidget()
-        self.list_widget.itemClicked.connect(lambda item: on_select(item.data(Qt.ItemDataRole.UserRole)))
-        layout.addWidget(self.list_widget)
+        self.list = QListView()
+        self.model = _SubscriptionListModel()
+        self.list.setModel(self.model)
+        # Parent the delegate to this container so it can call our handlers
+        self.delegate = _SubscriptionDelegate(self)
+        self.list.setItemDelegate(self.delegate)
+        # Uniform sizes and batched layout for performance
+        self.list.setUniformItemSizes(True)
+        self.list.setLayoutMode(QListView.LayoutMode.Batched)
+        self.list.setBatchSize(256)
+        # Double-click row to open podcast (same as open icon)
+        self.list.doubleClicked.connect(self.openRequested)
+        layout.addWidget(self.list)
         self.search_button = QPushButton("Search Podcasts")
         self.search_button.clicked.connect(on_search)
         layout.addWidget(self.search_button)
+        # Hook delegate events
+        # We use methods called by delegate via parent() to avoid signal boilerplate
+        self.refresh()
+
+    # Called by delegate
+    def openRequested(self, index: QModelIndex) -> None:  # noqa: N802 - Qt style
+        sub = self.model.data(index, Qt.ItemDataRole.UserRole)
+        if sub:
+            self._on_select(sub)
+
+    # Called by delegate
+    def deleteRequested(self, index: QModelIndex) -> None:  # noqa: N802 - Qt style
+        sub: Subscription | None = self.model.data(index, Qt.ItemDataRole.UserRole)
+        if not sub:
+            return
+        # Confirm subscription removal
+        ans = QMessageBox.question(
+            self,
+            "Remove Subscription",
+            f"Remove subscription to '{sub.name}'?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if ans != QMessageBox.StandardButton.Yes:
+            return
+        self.service.remove_subscription(sub.feed_url)
+        # Optionally delete local podcast data directory
+        ans2 = QMessageBox.question(
+            self,
+            "Delete Local Data",
+            f"Also delete local data for '{sub.name}'?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if ans2 == QMessageBox.StandardButton.Yes:
+            pod_dir = self.service.cfg.root_dir / sub.name
+            try:
+                import shutil
+
+                shutil.rmtree(pod_dir)
+            except Exception:
+                pass
         self.refresh()
 
     def refresh(self) -> None:
-        self.list_widget.clear()
-        for sub in self.service.list_subscriptions():
-            item = QListWidgetItem(sub.name)
-            if sub.icon_url and Path(sub.icon_url).exists():
-                item.setIcon(QIcon(sub.icon_url))
-            item.setData(Qt.ItemDataRole.UserRole, sub)
-            self.list_widget.addItem(item)
+        self.model.setSubscriptions(self.service.list_subscriptions())
 
     def select_by_feed(self, feed_url: str) -> None:
-        for i in range(self.list_widget.count()):
-            item = self.list_widget.item(i)
-            sub: Subscription = item.data(Qt.ItemDataRole.UserRole)
-            if sub.feed_url == feed_url:
-                self.list_widget.setCurrentRow(i)
-                # Ensure item is visible if list is long
-                self.list_widget.scrollToItem(item)
-                break
+        row = self.model.indexOfFeed(feed_url)
+        if row >= 0:
+            idx = self.model.index(row)
+            self.list.setCurrentIndex(idx)
+            self.list.scrollTo(idx)
 
 
 class SearchView(QWidget):
