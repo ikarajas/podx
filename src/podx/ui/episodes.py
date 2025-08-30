@@ -133,6 +133,7 @@ class EpisodeDelegate(QStyledItemDelegate):
         self._done_icon = style.standardIcon(QStyle.StandardPixmap.SP_DialogApplyButton)
         self._progress_icon = style.standardIcon(QStyle.StandardPixmap.SP_BrowserReload)
         self._failed_icon = style.standardIcon(QStyle.StandardPixmap.SP_MessageBoxWarning)
+        self._default_art: QPixmap | None = None
 
     # Painting
     def paint(self, painter: QPainter, option: QStyleOptionViewItem, index: QModelIndex) -> None:  # type: ignore[override]
@@ -149,11 +150,14 @@ class EpisodeDelegate(QStyledItemDelegate):
             self._thumb_px,
         )
         art_url = index.data(EpisodeListModel.ArtworkRole)
+        pix = None
         if art_url:
             pix = self._get_pixmap(art_url)
-            if pix:
-                # Draw at native size (already scaled once and cached)
-                painter.drawPixmap(art_rect.topLeft(), pix)
+        if pix is None and self._default_art is not None:
+            pix = self._default_art
+        if pix:
+            # Draw at native size (already scaled once and cached)
+            painter.drawPixmap(art_rect.topLeft(), pix)
         # Text area
         text_left = art_rect.right() + self._margin
         text_width = rect.width() - (text_left - rect.left()) - self._icon_size - self._margin
@@ -279,6 +283,14 @@ class EpisodeDelegate(QStyledItemDelegate):
                     self.transcribeRequested.emit(index)
                 return True
         return super().editorEvent(event, model, option, index)
+
+    # Configuration
+    def set_default_art(self, url: str | None) -> None:
+        if not url:
+            self._default_art = None
+            return
+        pix = self._get_pixmap(url)
+        self._default_art = pix
 
     def helpEvent(self, event, view, option, index):  # type: ignore[override]
         if event.type() == QEvent.Type.ToolTip:
@@ -569,6 +581,11 @@ class PodcastView(QWidget):
                 self.podcast_icon.clear()
         else:
             self.podcast_icon.clear()
+        # Provide default artwork to delegate for episodes lacking an image
+        try:
+            self.delegate.set_default_art(icon_url)
+        except Exception:
+            pass
         episodes = self.rss.fetch_episodes(sub.feed_url)
         # Mark transcribed/failed using episodes index for this subscription key
         key = self._feeds_meta.get_or_create_key(sub.name, sub.feed_url)
