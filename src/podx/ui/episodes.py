@@ -603,6 +603,8 @@ class PodcastView(QWidget):
         # Bulk insert hygiene: clear once, then insert in chunks with updates disabled
         self.model.beginResetModel()
         self.model._episodes = []
+        # Reset statuses to avoid bleed-through from previous podcast
+        self.model._status = []
         self.model.endResetModel()
         self.list.setUpdatesEnabled(False)
         try:
@@ -614,6 +616,8 @@ class PodcastView(QWidget):
                 last = first + len(chunk) - 1
                 self.model.beginInsertRows(QModelIndex(), first, last)
                 self.model._episodes.extend(chunk)
+                # Grow statuses with idle defaults for new rows
+                self.model._status.extend(["idle"] * len(chunk))
                 self.model.endInsertRows()
         finally:
             self.list.setUpdatesEnabled(True)
