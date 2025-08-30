@@ -14,7 +14,7 @@ from PyQt6.QtCore import (
     QTimer,
     pyqtSignal,
 )
-from PyQt6.QtGui import QColor, QFont, QMouseEvent, QPainter, QPixmap, QPalette
+from PyQt6.QtGui import QColor, QFont, QMouseEvent, QPainter, QPixmap, QPalette, QFontMetrics
 from PyQt6.QtWidgets import (
     QListView,
     QStyledItemDelegate,
@@ -29,6 +29,7 @@ from PyQt6.QtWidgets import (
     QPlainTextEdit,
     QScrollArea,
     QSizePolicy,
+    QToolTip,
 )
 
 from ..models import FeedEpisode
@@ -75,6 +76,8 @@ class EpisodeListModel(QAbstractListModel):
         if role == self.StatusRole:
             row = index.row()
             return self._status[row] if 0 <= row < len(self._status) else "idle"
+        if role == Qt.ItemDataRole.ToolTipRole:
+            return ep.description or ""
         if role == Qt.ItemDataRole.DisplayRole:
             return ep.title
         return None
@@ -276,6 +279,41 @@ class EpisodeDelegate(QStyledItemDelegate):
                     self.transcribeRequested.emit(index)
                 return True
         return super().editorEvent(event, model, option, index)
+
+    def helpEvent(self, event, view, option, index):  # type: ignore[override]
+        if event.type() == QEvent.Type.ToolTip:
+            desc = index.data(EpisodeListModel.DescriptionRole) or ""
+            if desc:
+                fm = QFontMetrics(option.font)
+                max_w = max(300, int(view.viewport().width() * 0.6))
+                text = self._wrap_text(self._strip_html(desc), fm, max_w)
+                QToolTip.showText(event.globalPos(), text, view)
+                return True
+        return super().helpEvent(event, view, option, index)
+
+    def _strip_html(self, text: str) -> str:
+        try:
+            import re
+
+            return re.sub(r"<[^>]+>", "", text)
+        except Exception:
+            return text
+
+    def _wrap_text(self, text: str, fm: QFontMetrics, max_width: int) -> str:
+        words = text.split()
+        if not words:
+            return ""
+        lines: list[str] = []
+        current = words[0]
+        for w in words[1:]:
+            test = current + " " + w
+            if fm.horizontalAdvance(test) <= max_width:
+                current = test
+            else:
+                lines.append(current)
+                current = w
+        lines.append(current)
+        return "\n".join(lines)
 
 
 class PodcastView(QWidget):
@@ -513,7 +551,8 @@ class PodcastView(QWidget):
         # Update podcast header
         self.podcast_title.setText(sub.name)
         meta = self._feeds_meta.get_by_url(sub.feed_url)
-        self.podcast_desc.setText(meta.description or "")
+        desc_text = meta.description or ""
+        self.podcast_desc.setText(desc_text)
         # Set icon if available
         icon_url = (meta.icon_url if meta else None) or getattr(sub, "icon_url", None)
         if icon_url:
