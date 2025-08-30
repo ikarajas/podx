@@ -276,6 +276,9 @@ class EpisodeDelegate(QStyledItemDelegate):
 class PodcastView(QWidget):
     """View showing a podcast's episodes."""
 
+    # Signal to update UI from worker thread safely
+    transcribeFinished = pyqtSignal(int, bool)
+
     def __init__(self, rss: RssService, feeds_meta: FeedsMetaService, episodes_index: EpisodesIndexService, ingestion: IngestionService, on_back) -> None:
         super().__init__()
         self.rss = rss
@@ -299,6 +302,8 @@ class PodcastView(QWidget):
         self.delegate = EpisodeDelegate(self.list)
         self.list.setItemDelegate(self.delegate)
         self.delegate.transcribeRequested.connect(self._on_transcribe)
+        # Connect result signal
+        self.transcribeFinished.connect(self._on_transcribe_result)
         # Quick wins: uniform sizes and batched layout
         self.list.setUniformItemSizes(True)
         self.list.setLayoutMode(QListView.LayoutMode.Batched)
@@ -357,36 +362,50 @@ class PodcastView(QWidget):
             ok, err, result = _f.result()
             key = self._feeds_meta.get_or_create_key(sub.name, sub.feed_url)
             pub_iso = ep.published.isoformat() if ep.published else None
-            def update_ui():
-                if ok and result is not None:
-                    self._episodes_index.mark_transcribed(
-                        key,
-                        title=ep.title,
-                        published_date=pub_iso or None,
-                        guid=guid,
-                        enclosure_url=enclosure,
-                        episode_dir=result.path,
-                        vtt_path=result.transcript.vtt_path,
-                        txt_path=result.transcript.txt_path,
-                    )
-                    self.model._episodes[row].transcribed = True
-                    self.model.setStatus(row, "transcribed")
-                    # Force a repaint to reflect icon change immediately
-                    self.list.viewport().update()
-                else:
-                    self._episodes_index.mark_failed(
-                        key,
-                        title=ep.title,
-                        published_date=pub_iso or None,
-                        guid=guid,
-                        enclosure_url=enclosure,
-                        error=str(err or "error"),
-                    )
-                    self.model.setStatus(row, "failed")
-                    self.list.viewport().update()
-            QTimer.singleShot(0, update_ui)
+            # Update index on the worker thread
+            if ok and result is not None:
+                self._episodes_index.mark_transcribed(
+                    key,
+                    title=ep.title,
+                    published_date=pub_iso or None,
+                    guid=guid,
+                    enclosure_url=enclosure,
+                    episode_dir=result.path,
+                    vtt_path=result.transcript.vtt_path,
+                    txt_path=result.transcript.txt_path,
+                )
+            else:
+                self._episodes_index.mark_failed(
+                    key,
+                    title=ep.title,
+                    published_date=pub_iso or None,
+                    guid=guid,
+                    enclosure_url=enclosure,
+                    error=str(err or "error"),
+                )
+            # Emit to UI thread
+            try:
+                self.transcribeFinished.emit(row, bool(ok and result is not None))
+            except Exception:
+                # Fallback to timer if signal emission fails
+                def update_ui():
+                    self._on_transcribe_result(row, bool(ok and result is not None))
+                QTimer.singleShot(0, update_ui)
 
         fut.add_done_callback(_done)
+
+    def _on_transcribe_result(self, row: int, ok: bool) -> None:
+        if not (0 <= row < self.model.rowCount()):
+            return
+        if ok:
+            self.model._episodes[row].transcribed = True
+            self.model.setStatus(row, "transcribed")
+        else:
+            self.model.setStatus(row, "failed")
+        # Repaint only the affected row
+        idx = self.model.index(row)
+        rect = self.list.visualRect(idx)
+        self.list.viewport().update(rect)
 
     def load(self, sub) -> None:
         self._current_sub = sub
