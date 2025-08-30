@@ -51,6 +51,14 @@ human‑readable subscription key of the form `slug--shortid` (derived from the
 podcast title and a digest of the feed URL). See the detailed docs in
 [`docs/feeds-metadata.md`](docs/feeds-metadata.md).
 
+### Episode index and transcription status
+
+Transcription status is tracked per subscription in a lightweight JSON index so
+the UI can show which episodes are already transcribed without re-reading media.
+The index lives under each subscription directory and is keyed using stable
+identifiers (GUID/enclosure URL with fallbacks). See
+[`docs/episodes-index.md`](docs/episodes-index.md).
+
 ## Project Layout
 
 - `pyproject.toml`: Package metadata and console script entrypoint

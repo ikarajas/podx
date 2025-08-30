@@ -40,6 +40,8 @@ class FeedEpisode:
     published: datetime | None
     duration: int | None
     artwork_url: str | None
+    guid: str | None = None
+    enclosure_url: str | None = None
     transcribed: bool = False
 
 

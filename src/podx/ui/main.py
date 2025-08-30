@@ -34,6 +34,7 @@ from podx.services.directory import DirectoryService
 from podx.services.subscriptions import SubscriptionService
 from podx.services.feeds_meta import FeedsMetaService
 from podx.services import RssService
+from podx.services.episodes_index import EpisodesIndexService
 from podx.ui.episodes import PodcastView
 
 
@@ -470,6 +471,7 @@ class MainWindow(QMainWindow):
         self.feeds_meta_service = FeedsMetaService(cfg)
         self.directory_service = DirectoryService(cfg)
         self.rss_service = RssService()
+        self.episodes_index_service = EpisodesIndexService(self.feeds_meta_service)
         self.stack = QStackedWidget()
         self.setCentralWidget(self.stack)
         self.subscriptions_view = SubscriptionListView(
@@ -480,7 +482,7 @@ class MainWindow(QMainWindow):
             self.show_search,
         )
         self.stack.addWidget(self.subscriptions_view)
-        self.podcast_view = PodcastView(self.rss_service, on_back=self.show_subscriptions)
+        self.podcast_view = PodcastView(self.rss_service, self.feeds_meta_service, self.episodes_index_service, on_back=self.show_subscriptions)
         self.stack.addWidget(self.podcast_view)
         self.search_view = SearchView(
             self.directory_service,

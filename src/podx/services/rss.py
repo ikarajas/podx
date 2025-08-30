@@ -48,6 +48,9 @@ class RssService:
             duration = _parse_duration(dur_text) if dur_text else None
             art_el = item.find(self.ITUNES_NS + "image")
             artwork = art_el.get("href") if art_el is not None else None
+            guid = item.findtext("guid")
+            enc_el = item.find("enclosure")
+            enclosure = enc_el.get("url") if enc_el is not None else None
             episodes.append(
                 FeedEpisode(
                     title=title,
@@ -55,6 +58,8 @@ class RssService:
                     published=published,
                     duration=duration,
                     artwork_url=artwork,
+                    guid=guid,
+                    enclosure_url=enclosure,
                     transcribed=False,
                 )
             )

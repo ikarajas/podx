@@ -9,6 +9,8 @@ from pathlib import Path
 from typing import Optional
 
 from podx.services.config import Config
+from podx.services.feeds_meta import FeedsMetaService
+from podx.services.episodes_index import EpisodesIndexService
 from podx.services.progress import ProgressReporter
 from podx.services.whisper import get_runner
 from ..models import Episode, TranscriptionResult
@@ -59,9 +61,11 @@ def _language_from_args(args: list[str]) -> str:
 class IngestionService:
     """Service responsible for ingesting podcast episodes."""
 
-    def __init__(self, cfg: Config) -> None:
+    def __init__(self, cfg: Config, feeds_meta: FeedsMetaService | None = None, episodes_index: EpisodesIndexService | None = None) -> None:
         self.cfg = cfg
         self._executor: ThreadPoolExecutor | None = None
+        self._feeds_meta = feeds_meta
+        self._episodes_index = episodes_index
 
     def transcribe_async(
         self,
@@ -104,6 +108,10 @@ class IngestionService:
         episode: Optional[str] = None,
         force: bool = False,
         reporter: ProgressReporter | None = None,
+        *,
+        feed_url: Optional[str] = None,
+        enclosure_url: Optional[str] = None,
+        guid: Optional[str] = None,
     ) -> Episode | None:
         """Ingest ``audio`` and return an :class:`Episode`.
 
@@ -121,8 +129,12 @@ class IngestionService:
         published_date = meta.get("published_date")
         duration_sec = meta.get("duration_sec", 0)
 
-        root_dir = self.cfg.root_dir
-        episode_dir = root_dir / podcast_name / f"{published_date} - {episode_title}"
+        # Determine target directory; prefer subscription key when feed_url provided and services available
+        if feed_url and self._feeds_meta is not None:
+            pod_dir = self._feeds_meta.podcast_dir(podcast_name, feed_url)
+        else:
+            pod_dir = self.cfg.root_dir / podcast_name
+        episode_dir = pod_dir / f"{published_date} - {episode_title}"
         transcript_vtt = episode_dir / "transcript.vtt"
         transcript_txt = episode_dir / "transcript.txt"
         lock_path = episode_dir / ".lock"
@@ -201,6 +213,19 @@ class IngestionService:
 
             with open(episode_dir / "episode.json", "w") as f:
                 json.dump(episode_data.to_dict(), f, indent=2)
+            # Update episodes index if available
+            if feed_url and self._episodes_index is not None and self._feeds_meta is not None:
+                key = self._feeds_meta.get_or_create_key(podcast_name, feed_url)
+                self._episodes_index.mark_transcribed(
+                    key,
+                    title=episode_title,
+                    published_date=published_date,
+                    guid=guid,
+                    enclosure_url=enclosure_url,
+                    episode_dir=episode_dir,
+                    vtt_path=transcript_vtt,
+                    txt_path=transcript_txt,
+                )
             return episode_data
         except Exception as exc:
             # Failure – clean up any partially written files.

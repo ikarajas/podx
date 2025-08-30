@@ -26,6 +26,8 @@ from PyQt6.QtWidgets import (
 
 from ..models import FeedEpisode
 from ..services import RssService
+from ..services.feeds_meta import FeedsMetaService
+from ..services.episodes_index import EpisodesIndexService
 
 
 class EpisodeListModel(QAbstractListModel):
@@ -236,9 +238,11 @@ class EpisodeDelegate(QStyledItemDelegate):
 class PodcastView(QWidget):
     """View showing a podcast's episodes."""
 
-    def __init__(self, rss: RssService, on_back) -> None:
+    def __init__(self, rss: RssService, feeds_meta: FeedsMetaService, episodes_index: EpisodesIndexService, on_back) -> None:
         super().__init__()
         self.rss = rss
+        self._feeds_meta = feeds_meta
+        self._episodes_index = episodes_index
         self._insert_chunk = 200
         layout = QVBoxLayout(self)
         header = QHBoxLayout()
@@ -260,6 +264,12 @@ class PodcastView(QWidget):
 
     def load(self, sub) -> None:
         episodes = self.rss.fetch_episodes(sub.feed_url)
+        # Mark transcribed using episodes index for this subscription key
+        key = self._feeds_meta.get_or_create_key(sub.name, sub.feed_url)
+        for ep in episodes:
+            pub_iso = ep.published.isoformat() if ep.published else None
+            entry = self._episodes_index.find(key, ep.guid, ep.enclosure_url, pub_iso, ep.title)
+            ep.transcribed = bool(entry and entry.status == "transcribed")
         # Bulk insert hygiene: clear once, then insert in chunks with updates disabled
         self.model.beginResetModel()
         self.model._episodes = []
