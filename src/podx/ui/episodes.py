@@ -91,6 +91,8 @@ class EpisodeDelegate(QStyledItemDelegate):
         self._pixmap_cache: dict[str, QPixmap] = {}
         self._icon_size = 24
         self._margin = 8
+        self._thumb_px = 80
+        self._item_height = 96
         style = QWidget().style()
         self._transcribe_icon = style.standardIcon(QStyle.StandardPixmap.SP_FileDialogDetailedView)
         self._done_icon = style.standardIcon(QStyle.StandardPixmap.SP_DialogApplyButton)
@@ -101,20 +103,19 @@ class EpisodeDelegate(QStyledItemDelegate):
         rect = option.rect
         if option.state & QStyle.StateFlag.State_Selected:
             painter.fillRect(rect, option.palette.highlight())
+        # Fixed-size artwork to avoid per-paint scaling
         art_rect = QRect(
             rect.left() + self._margin,
             rect.top() + self._margin,
-            rect.height() - 2 * self._margin,
-            rect.height() - 2 * self._margin,
+            self._thumb_px,
+            self._thumb_px,
         )
         art_url = index.data(EpisodeListModel.ArtworkRole)
         if art_url:
             pix = self._get_pixmap(art_url)
             if pix:
-                painter.drawPixmap(
-                    art_rect,
-                    pix.scaled(art_rect.size(), Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation),
-                )
+                # Draw at native size (already scaled once and cached)
+                painter.drawPixmap(art_rect.topLeft(), pix)
         # Text area
         text_left = art_rect.right() + self._margin
         text_width = rect.width() - (text_left - rect.left()) - self._icon_size - self._margin
@@ -168,7 +169,8 @@ class EpisodeDelegate(QStyledItemDelegate):
         painter.restore()
 
     def sizeHint(self, option: QStyleOptionViewItem, index: QModelIndex) -> QSize:  # type: ignore[override]
-        return QSize(option.rect.width(), 96)
+        # Uniform, fixed height to skip per-item height calculations
+        return QSize(-1, self._item_height)
 
     # Helpers
     def _get_pixmap(self, url: str) -> QPixmap | None:
@@ -188,8 +190,15 @@ class EpisodeDelegate(QStyledItemDelegate):
         else:
             p.load(url)
         if p and not p.isNull():
-            self._pixmap_cache[url] = p
-            return p
+            # Scale once to target size and cache to avoid repeated resampling
+            scaled = p.scaled(
+                self._thumb_px,
+                self._thumb_px,
+                Qt.AspectRatioMode.KeepAspectRatio,
+                Qt.TransformationMode.SmoothTransformation,
+            )
+            self._pixmap_cache[url] = scaled
+            return scaled
         return None
 
     def _icon_rect(self, option: QStyleOptionViewItem) -> QRect:
@@ -219,6 +228,7 @@ class PodcastView(QWidget):
     def __init__(self, rss: RssService, on_back) -> None:
         super().__init__()
         self.rss = rss
+        self._insert_chunk = 200
         layout = QVBoxLayout(self)
         header = QHBoxLayout()
         back = QPushButton("Back")
@@ -231,8 +241,28 @@ class PodcastView(QWidget):
         self.list.setModel(self.model)
         self.delegate = EpisodeDelegate(self.list)
         self.list.setItemDelegate(self.delegate)
+        # Quick wins: uniform sizes and batched layout
+        self.list.setUniformItemSizes(True)
+        self.list.setLayoutMode(QListView.LayoutMode.Batched)
+        self.list.setBatchSize(256)
         layout.addWidget(self.list, 1)
 
     def load(self, sub) -> None:
         episodes = self.rss.fetch_episodes(sub.feed_url)
-        self.model.setEpisodes(episodes)
+        # Bulk insert hygiene: clear once, then insert in chunks with updates disabled
+        self.model.beginResetModel()
+        self.model._episodes = []
+        self.model.endResetModel()
+        self.list.setUpdatesEnabled(False)
+        try:
+            for i in range(0, len(episodes), self._insert_chunk):
+                chunk = episodes[i : i + self._insert_chunk]
+                if not chunk:
+                    continue
+                first = self.model.rowCount()
+                last = first + len(chunk) - 1
+                self.model.beginInsertRows(QModelIndex(), first, last)
+                self.model._episodes.extend(chunk)
+                self.model.endInsertRows()
+        finally:
+            self.list.setUpdatesEnabled(True)
