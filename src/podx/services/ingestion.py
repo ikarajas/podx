@@ -7,6 +7,7 @@ import os
 import shutil
 from pathlib import Path
 from typing import Optional
+import re
 
 from podx.services.config import Config
 from podx.services.feeds_meta import FeedsMetaService
@@ -56,6 +57,37 @@ def _language_from_args(args: list[str]) -> str:
         if idx + 1 < len(args):
             return args[idx + 1]
     return "en"
+
+
+_INVALID_WIN_CHARS = re.compile(r'[<>:"/\\|?*\x00-\x1F]')
+_RESERVED_WIN_NAMES = {
+    "con",
+    "prn",
+    "aux",
+    "nul",
+    *{f"com{i}" for i in range(1, 10)},
+    *{f"lpt{i}" for i in range(1, 10)},
+}
+
+
+def _safe_component(name: str, max_len: int = 120) -> str:
+    """Return a filesystem-safe path component (Windows/macOS/Linux).
+
+    - Removes invalid Windows characters and control chars
+    - Collapses whitespace, trims, and strips trailing dots/spaces
+    - Avoids reserved Windows device names by appending an underscore
+    """
+    s = str(name or "").strip()
+    s = _INVALID_WIN_CHARS.sub(" ", s)
+    s = re.sub(r"\s+", " ", s).strip()
+    s = s.rstrip(" .")
+    if not s:
+        s = "untitled"
+    if s.lower() in _RESERVED_WIN_NAMES:
+        s = s + "_"
+    if len(s) > max_len:
+        s = s[:max_len].rstrip(" .")
+    return s
 
 
 class IngestionService:
@@ -133,8 +165,8 @@ class IngestionService:
         if feed_url and self._feeds_meta is not None:
             pod_dir = self._feeds_meta.podcast_dir(podcast_name, feed_url)
         else:
-            pod_dir = self.cfg.root_dir / podcast_name
-        episode_dir = pod_dir / f"{published_date} - {episode_title}"
+            pod_dir = self.cfg.root_dir / _safe_component(podcast_name)
+        episode_dir = pod_dir / _safe_component(f"{published_date} - {episode_title}")
         transcript_vtt = episode_dir / "transcript.vtt"
         transcript_txt = episode_dir / "transcript.txt"
         lock_path = episode_dir / ".lock"
