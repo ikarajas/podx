@@ -42,6 +42,24 @@ Runtime configuration is read from `~/.podx/config.yaml` (or the file pointed to
 by the `PODX_CONFIG` environment variable).  See [AGENTS.md](AGENTS.md) for a
 deeper look at the project architecture and contribution guidelines.
 
+### Cross-platform Whisper engines
+
+Podx supports multiple transcription engines via a single runner:
+
+- macOS arm64: uses MLX (`mlx_whisper`) by default for best performance.
+- Windows/Linux (or non‑arm64 macOS): uses OpenAI Whisper CLI (`whisper`).
+
+You can override the engine and model in your config file:
+
+```yaml
+whisper:
+  runner: whisper   # or "mlx" on macOS arm64
+  model: small.en   # e.g., "base", "small.en", etc.
+  extra_args: ["--language", "en"]
+```
+
+Note: Both engines require FFmpeg to be installed and available on `PATH`.
+
 ### Feed metadata cache and subscription keys
 
 The UI caches podcast channel metadata (title, description, icon) per
@@ -69,4 +87,3 @@ identifiers (GUID/enclosure URL with fallbacks). See
 ## License
 
 MIT
-

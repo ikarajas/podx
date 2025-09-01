@@ -16,7 +16,10 @@ classifiers = [
   "Operating System :: OS Independent",
 ]
 dependencies = [
-  "mlx-whisper",
+  # Apple MLX-based Whisper: only available on macOS arm64
+  "mlx-whisper; sys_platform == 'darwin' and platform_machine == 'arm64'",
+  # Cross-platform Whisper CLI as a fallback elsewhere
+  "openai-whisper; sys_platform != 'darwin' or platform_machine != 'arm64'",
   "PyYAML",
   "mutagen",
   "PyQt6"

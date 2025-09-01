@@ -11,6 +11,8 @@ from dataclasses import dataclass, asdict, field
 from pathlib import Path
 import json
 import os
+import sys
+import platform
 
 try:  # pragma: no cover
     import yaml  # type: ignore
@@ -65,11 +67,18 @@ def load_config(path: Path | None = None) -> Config:
     whisper = data.get("whisper", {})
     logging = data.get("logging", {})
     ui = data.get("ui", {})
+    # Choose sensible per-platform defaults if not specified
+    is_mlx_platform = sys.platform == "darwin" and platform.machine().lower() in ("arm64", "aarch64")
+    default_runner = "mlx" if is_mlx_platform else "whisper"
+    default_model = (
+        "mlx-community/whisper-small-mlx-q4" if is_mlx_platform else "small.en"
+    )
+
     return Config(
         root_dir=Path(data.get("root_dir", "./podx")),
         whisper=WhisperSettings(
-            runner=whisper.get("runner", "mlx"),
-            model=whisper.get("model", "mlx-community/whisper-small-mlx-q4"),
+            runner=whisper.get("runner", default_runner),
+            model=whisper.get("model", default_model),
             extra_args=list(whisper.get("extra_args", [])),
         ),
         logging=LoggingSettings(
@@ -117,4 +126,3 @@ __all__ = [
     "load_config",
     "save_config",
 ]
-
