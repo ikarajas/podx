@@ -60,6 +60,22 @@ whisper:
 
 Note: Both engines require FFmpeg to be installed and available on `PATH`.
 
+### Performance: Faster-Whisper (Intel-friendly)
+
+On Windows/Linux or Intel iGPUs, you can use Faster‑Whisper for better speed, with optional OpenVINO GPU acceleration:
+
+- Install extras: `pip install -e .[faster]` (or `pip install faster-whisper`)
+- Set config:
+
+```yaml
+whisper:
+  runner: faster
+  model: small.en
+  extra_args: ["--language", "en"]
+```
+
+- Optional env for OpenVINO GPU: set `CT2_USE_OPENVINO=1` and `OPENVINO_DEVICE=GPU` (e.g., `GPU.0`). You can also tune with `PODX_FASTER_DEVICE` and `PODX_FASTER_COMPUTE`.
+
 ### Feed metadata cache and subscription keys
 
 The UI caches podcast channel metadata (title, description, icon) per

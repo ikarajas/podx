@@ -4,6 +4,7 @@ import subprocess
 from concurrent.futures import Future, ThreadPoolExecutor
 from pathlib import Path
 from typing import Callable, Optional
+import os
 
 import sys
 import shutil
@@ -93,6 +94,68 @@ class WhisperRunner:
                 "--output-format",
                 "all",
             ]
+        elif runner == "faster":
+            try:
+                from faster_whisper import WhisperModel  # type: ignore
+            except Exception as exc:  # pragma: no cover - optional dep
+                raise RuntimeError(
+                    "The 'faster' runner requires faster-whisper. Install with 'pip install faster-whisper' or 'pip install .[faster]'."
+                ) from exc
+
+            language = None
+            if "--language" in self.settings.extra_args:
+                i = self.settings.extra_args.index("--language")
+                if i + 1 < len(self.settings.extra_args):
+                    language = self.settings.extra_args[i + 1]
+
+            compute_type = os.environ.get("PODX_FASTER_COMPUTE", "int8")
+            device = os.environ.get("PODX_FASTER_DEVICE", "auto")
+
+            model = WhisperModel(self.settings.model or "small.en", device=device, compute_type=compute_type)
+
+            feeder: Optional[ProgressFeeder] = None
+            if reporter is not None and total_duration_sec and total_duration_sec > 0:
+                feeder = ProgressFeeder(total_duration_sec, reporter)
+
+            segments, info = model.transcribe(
+                str(audio_path),
+                language=language,
+                vad_filter=True,
+                word_timestamps=False,
+            )
+
+            def _ts(s: float) -> str:
+                ms = int((s - int(s)) * 1000)
+                s_int = int(s)
+                h = s_int // 3600
+                m = (s_int % 3600) // 60
+                sec = s_int % 60
+                return f"{h:02d}:{m:02d}:{sec:02d}.{ms:03d}"
+
+            txt_lines: list[str] = []
+            vtt_lines: list[str] = ["WEBVTT", ""]
+            for seg in segments:
+                if feeder is not None:
+                    feeder.consume_line(f"[{_ts(seg.start)} --> {_ts(seg.end)}]")
+                text = (getattr(seg, "text", "") or "").strip()
+                if text:
+                    txt_lines.append(text)
+                    vtt_lines.append(f"{_ts(seg.start)} --> {_ts(seg.end)}")
+                    vtt_lines.append(text)
+                    vtt_lines.append("")
+
+            if feeder is not None:
+                feeder.done()
+
+            output_dir.mkdir(parents=True, exist_ok=True)
+            vtt_path.write_text("\n".join(vtt_lines), encoding="utf-8")
+            txt_path.write_text("\n".join(txt_lines), encoding="utf-8")
+
+            with open(log_file, "a", encoding="utf-8", errors="ignore") as logf:
+                dur = getattr(info, "duration", None)
+                logf.write(f"faster-whisper: model={self.settings.model}, duration={dur}\n")
+
+            return
         else:
             if shutil.which("ffmpeg") is None:
                 raise RuntimeError(
