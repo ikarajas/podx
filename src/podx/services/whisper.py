@@ -120,7 +120,7 @@ class WhisperRunner:
             segments, info = model.transcribe(
                 str(audio_path),
                 language=language,
-                vad_filter=True,
+                vad_filter=False,
                 word_timestamps=False,
             )
 

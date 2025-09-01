@@ -75,6 +75,7 @@ whisper:
 ```
 
 - Optional env for OpenVINO GPU: set `CT2_USE_OPENVINO=1` and `OPENVINO_DEVICE=GPU` (e.g., `GPU.0`). You can also tune with `PODX_FASTER_DEVICE` and `PODX_FASTER_COMPUTE`.
+  Podx uses Faster‑Whisper without VAD by default to keep dependencies light; no extra packages are required.
 
 ### Feed metadata cache and subscription keys
 
