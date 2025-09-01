@@ -33,6 +33,7 @@ from PyQt6.QtWidgets import (
 )
 
 from ..models import FeedEpisode
+from .utils import clean_html
 from ..services import RssService
 from ..services.feeds_meta import FeedsMetaService
 from ..services.episodes_index import EpisodesIndexService
@@ -164,7 +165,7 @@ class EpisodeDelegate(QStyledItemDelegate):
         y = rect.top() + self._margin
 
         # Title
-        title = index.data(EpisodeListModel.TitleRole)
+        title = clean_html(index.data(EpisodeListModel.TitleRole) or "")
         title_font = QFont(option.font)
         title_font.setBold(True)
         title_font.setPointSize(option.font.pointSize() + 2)
@@ -174,7 +175,7 @@ class EpisodeDelegate(QStyledItemDelegate):
         y += 24
 
         # Description
-        desc = index.data(EpisodeListModel.DescriptionRole) or ""
+        desc = clean_html(index.data(EpisodeListModel.DescriptionRole) or "")
         desc_font = QFont(option.font)
         desc_font.setPointSize(option.font.pointSize() - 1)
         painter.setFont(desc_font)
@@ -294,22 +295,14 @@ class EpisodeDelegate(QStyledItemDelegate):
 
     def helpEvent(self, event, view, option, index):  # type: ignore[override]
         if event.type() == QEvent.Type.ToolTip:
-            desc = index.data(EpisodeListModel.DescriptionRole) or ""
+            desc = clean_html(index.data(EpisodeListModel.DescriptionRole) or "")
             if desc:
                 fm = QFontMetrics(option.font)
                 max_w = max(300, int(view.viewport().width() * 0.6))
-                text = self._wrap_text(self._strip_html(desc), fm, max_w)
+                text = self._wrap_text(desc, fm, max_w)
                 QToolTip.showText(event.globalPos(), text, view)
                 return True
         return super().helpEvent(event, view, option, index)
-
-    def _strip_html(self, text: str) -> str:
-        try:
-            import re
-
-            return re.sub(r"<[^>]+>", "", text)
-        except Exception:
-            return text
 
     def _wrap_text(self, text: str, fm: QFontMetrics, max_width: int) -> str:
         words = text.split()

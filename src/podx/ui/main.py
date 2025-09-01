@@ -37,6 +37,7 @@ from podx.services import RssService
 from podx.services.episodes_index import EpisodesIndexService
 from podx.services.ingestion import IngestionService
 from podx.ui.episodes import PodcastView
+from .utils import clean_html
 
 
 class _SubscriptionListModel(QAbstractListModel):
@@ -121,10 +122,10 @@ class _SubscriptionDelegate(QStyledItemDelegate):
         sel = bool(option.state & QStyle.StateFlag.State_Selected)
         title_col = option.palette.highlightedText().color() if sel else option.palette.text().color()
         painter.setPen(title_col)
-        title = index.data(Qt.ItemDataRole.DisplayRole)
+        title = clean_html(index.data(Qt.ItemDataRole.DisplayRole) or "")
         painter.drawText(text_rect.adjusted(0, 4, 0, 0), int(Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft), title)
         # Description (bottom, 2 lines word-wrapped)
-        desc = index.data(_SubscriptionListModel.DescriptionRole) or ""
+        desc = clean_html(index.data(_SubscriptionListModel.DescriptionRole) or "")
         if desc:
             snippet = desc.replace("\n", " ")
             # Higher-contrast secondary text; adapt to selection
