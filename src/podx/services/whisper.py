@@ -71,6 +71,10 @@ class WhisperRunner:
         """
         runner = (self.settings.runner or "").lower()
 
+        # For the OpenAI whisper CLI, ffmpeg is required. For MLX, many inputs
+        # still rely on ffmpeg for decoding, but we don't hard-require it to
+        # allow simple WAV cases to proceed.
+
         # All runners write to tmp output directory; ensure exists
         output_dir = vtt_path.parent
         output_stem = vtt_path.stem
@@ -90,6 +94,10 @@ class WhisperRunner:
                 "all",
             ]
         else:
+            if shutil.which("ffmpeg") is None:
+                raise RuntimeError(
+                    "ffmpeg is required for the 'whisper' runner but not found on PATH. Install ffmpeg and try again."
+                )
             # Default to OpenAI Whisper CLI for non-MLX platforms
             # Note: OpenAI whisper uses output_dir only; filenames are based on input stem.
             cmd = [
