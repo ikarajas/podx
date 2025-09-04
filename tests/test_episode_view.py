@@ -6,13 +6,11 @@ from pathlib import Path
 import pytest
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
-
-pytest.importorskip("PyQt6")
 from PyQt6.QtCore import QEvent, QRect, QPointF, Qt
 from PyQt6.QtGui import QMouseEvent
 from PyQt6.QtWidgets import QApplication, QStyleOptionViewItem
 from PyQt6.QtTest import QSignalSpy
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from podx.models import FeedEpisode, Subscription
 from podx.services.config import Config, WhisperSettings, LoggingSettings
@@ -48,7 +46,7 @@ def test_model_and_delegate_signal():
         Qt.KeyboardModifier.NoModifier,
     )
     delegate.editorEvent(event, model, option, index)
-    assert spy.count() == 1
+    assert len(spy) == 1
     assert delegate.sizeHint(option, index).height() >= 80
     app.quit()
 
@@ -164,6 +162,8 @@ def test_podcast_view_transcript_regenerate_uses_same_handler(tmp_path):
     ingestion = object()
     view = PodcastView(rss, feeds_meta, episodes_index, ingestion, on_back=lambda: None)
     sub = Subscription(name="P", feed_url="http://f")
+    # Ensure a meta record exists so view.load() can read description/icon safely
+    feeds_meta.get_or_create_key(sub.name, sub.feed_url)
     view.load(sub)
     idx = view.model.index(0)
     view.list.setCurrentIndex(idx)

@@ -6,15 +6,14 @@ import pytest
 
 # Ensure Qt runs in headless mode
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
-
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
-
-pytest.importorskip("PyQt6")
 from PyQt6.QtWidgets import QApplication
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from podx.models import PodcastSearchResult
 from podx.services.config import Config, WhisperSettings, LoggingSettings
 from podx.services.subscriptions import SubscriptionService
+from podx.services.feeds_meta import FeedsMetaService
+from podx.services.rss import RssService
 from podx.ui.main import SearchView, SubscriptionListView
 
 
@@ -36,7 +35,14 @@ def test_search_and_subscribe_updates_list(tmp_path):
     app = QApplication.instance() or QApplication([])
     cfg = make_config(tmp_path)
     sub_service = SubscriptionService(cfg)
-    sub_view = SubscriptionListView(sub_service, on_select=lambda _: None, on_search=lambda: None)
+    feeds_meta = FeedsMetaService(cfg)
+    # Provide a dummy RSS service to avoid network during background refresh
+    class _DummyRss(RssService):
+        def fetch_channel_meta(self, *args, **kwargs):  # type: ignore[override]
+            return None, None, None, None, None
+
+    rss = _DummyRss()
+    sub_view = SubscriptionListView(sub_service, feeds_meta, rss, on_select=lambda _: None, on_search=lambda: None)
     directory = DummyDirectory()
     search_view = SearchView(
         directory,
@@ -53,6 +59,7 @@ def test_search_and_subscribe_updates_list(tmp_path):
     subs = sub_service.list_subscriptions()
     assert len(subs) == 1
     assert subs[0].name == "Test Podcast"
-    assert sub_view.list_widget.count() == 1
-    assert sub_view.list_widget.item(0).text() == "Test Podcast"
+    assert sub_view.model.rowCount() == 1
+    idx = sub_view.model.index(0)
+    assert sub_view.model.data(idx) == "Test Podcast"
     app.quit()

@@ -32,6 +32,32 @@ in other front‑ends. A future Qt application can plug in its own
 - Import configuration, progress reporting, and Whisper helpers from the
   `podx.services` namespace; legacy top-level modules have been removed.
 
+## PyQt6 Import Notes (UI tests and dev env)
+
+- The repo contains a lightweight compatibility stub at `src/PyQt6/__init__.py` so
+  optional Qt usage can fail fast with a clear ImportError when the native Qt
+  libraries aren’t present. The stub defers to the real PyPI wheel (`PyQt6`) and
+  validates that `PyQt6.QtCore` can be imported.
+- To avoid the local stub shadowing the real wheel during tests, import PyQt6
+  before adding the project `src/` path to `sys.path` (the UI tests already do
+  this). Alternatively, ensure your test run uses the virtualenv interpreter
+  where `PyQt6` is installed and that `site-packages` precedes the project’s
+  `src` on `PYTHONPATH`.
+- Headless Qt: UI tests run with `QT_QPA_PLATFORM=offscreen`. Keep this env var
+  set in CI and local test runs to avoid requiring a display server.
+- Always run UI tests: PyQt6 is a declared dependency in `pyproject.toml`. The
+  UI tests do not auto-skip; if `PyQt6.QtCore` cannot be imported (e.g., wrong
+  interpreter), the test collection fails, making the issue explicit.
+- Common failure: `ImportError: No module named 'PyQt6.QtCore'`. Fix by:
+  - Running tests with the venv’s Python: `python -m pytest -q` where `python`
+    is `.venv/bin/python`.
+  - Verifying PyQt6 and its bundled Qt are installed: `pip show PyQt6 PyQt6-Qt6`.
+  - Ensuring the local stub isn’t taking precedence (see import-order note).
+
+Tip: If your workflow prefers keeping UI tests optional, add a `@pytest.mark.ui`
+marker and run them in a dedicated job; otherwise, keep the current “always run”
+setup for stronger regression coverage.
+
 ## Documentation Strategy
 
 Keep high-level guidance in the top-level README and deeper, evolving details in docs/*. The goal is to make it easy to understand where new code belongs, how to extend features, and why notable choices were made.
