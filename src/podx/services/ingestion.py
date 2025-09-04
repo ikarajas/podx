@@ -171,7 +171,7 @@ class IngestionService:
         transcript_txt = episode_dir / "transcript.txt"
         lock_path = episode_dir / ".lock"
 
-        if transcript_vtt.exists() and not force:
+        if (transcript_vtt.exists() or transcript_txt.exists()) and not force:
             # Nothing to do – return ``None`` to signal skip.
             return None
 

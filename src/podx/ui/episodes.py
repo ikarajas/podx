@@ -329,7 +329,8 @@ class PodcastView(QWidget):
         self.list.setModel(self.model)
         self.delegate = EpisodeDelegate(self.list)
         self.list.setItemDelegate(self.delegate)
-        self.delegate.transcribeRequested.connect(self._on_transcribe)
+        # Delegate click triggers a normal transcription (no force)
+        self.delegate.transcribeRequested.connect(lambda idx: self._on_transcribe(idx, force=False))
         # Connect result signal
         self.transcribeFinished.connect(self._on_transcribe_result)
         # Uniform sizes and batched layout
@@ -379,7 +380,8 @@ class PodcastView(QWidget):
         t_head = QHBoxLayout()
         self.transcript_header_label = QLabel("")
         self.transcript_regen_btn = QPushButton("Regenerate")
-        self.transcript_regen_btn.clicked.connect(lambda: self._on_transcribe(self.list.currentIndex()))
+        # Regenerate should force re-transcription even if files exist
+        self.transcript_regen_btn.clicked.connect(lambda: self._on_transcribe(self.list.currentIndex(), force=True))
         t_head.addWidget(self.transcript_header_label)
         t_head.addStretch(1)
         t_head.addWidget(self.transcript_regen_btn)
@@ -472,7 +474,7 @@ class PodcastView(QWidget):
             h = []
         return v, h
 
-    def _on_transcribe(self, index: QModelIndex) -> None:
+    def _on_transcribe(self, index: QModelIndex, *, force: bool = False) -> None:
         row = index.row()
         if not (0 <= row < self.model.rowCount()):
             return
@@ -508,7 +510,7 @@ class PodcastView(QWidget):
                     Path(tmp_path),
                     podcast=sub.name,
                     episode=ep.title,
-                    force=False,
+                    force=bool(force),
                     reporter=None,
                     feed_url=sub.feed_url,
                     enclosure_url=enclosure,
