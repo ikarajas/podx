@@ -30,6 +30,7 @@ from PyQt6.QtWidgets import (
     QScrollArea,
     QSizePolicy,
     QToolTip,
+    QTabWidget,
 )
 
 from ..models import FeedEpisode
@@ -396,12 +397,72 @@ class PodcastView(QWidget):
         left_layout.addWidget(self.list, 1)
         splitter.addWidget(left_panel)
 
-        # Right panel: transcript display
+        # Right panel: episode header + tabs (Transcript, Summary)
         right_panel = QWidget()
         right_layout = QVBoxLayout(right_panel)
+
+        # Episode header (artwork + title + meta + description)
+        self.episode_header = QWidget()
+        eh_layout = QHBoxLayout(self.episode_header)
+        self.episode_art = QLabel("")
+        self.episode_art.setMinimumSize(64, 64)
+        self.episode_art.setMaximumSize(120, 120)
+        self.episode_art.setScaledContents(False)
+        self.episode_art.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
+        eh_right = QVBoxLayout()
+        self.episode_title = QLabel("")
+        self.episode_title.setStyleSheet("font-weight: bold; font-size: 14px;")
+        self.episode_meta = QLabel("")
+        pal = self.episode_meta.palette()
+        sec = pal.color(QPalette.ColorRole.WindowText)
+        sec.setAlpha(200)
+        self.episode_meta.setStyleSheet(f"color: {sec.name()}; font-size: 11px;")
+        self.episode_desc = QLabel("")
+        self.episode_desc.setWordWrap(True)
+        eh_right.addWidget(self.episode_title)
+        eh_right.addWidget(self.episode_meta)
+        eh_right.addWidget(self.episode_desc)
+        eh_right.addStretch(1)
+        eh_layout.addWidget(self.episode_art)
+        eh_layout.addLayout(eh_right)
+        right_layout.addWidget(self.episode_header)
+
+        # Tabs container
+        self.tabs = QTabWidget()
+
+        # Transcript tab
+        transcript_tab = QWidget()
+        t_layout = QVBoxLayout(transcript_tab)
+        t_head = QHBoxLayout()
+        self.transcript_header_label = QLabel("")
+        self.transcript_regen_btn = QPushButton("Regenerate")
+        self.transcript_regen_btn.clicked.connect(lambda: self._on_transcribe(self.list.currentIndex()))
+        t_head.addWidget(self.transcript_header_label)
+        t_head.addStretch(1)
+        t_head.addWidget(self.transcript_regen_btn)
+        t_layout.addLayout(t_head)
         self.transcript_view = QPlainTextEdit()
         self.transcript_view.setReadOnly(True)
-        right_layout.addWidget(self.transcript_view)
+        t_layout.addWidget(self.transcript_view)
+        self.tabs.addTab(transcript_tab, "Transcript")
+
+        # Summary tab (placeholder until summaries exist)
+        summary_tab = QWidget()
+        s_layout = QVBoxLayout(summary_tab)
+        s_head = QHBoxLayout()
+        self.summary_header_label = QLabel("")
+        self.summary_regen_btn = QPushButton("Regenerate")
+        self.summary_regen_btn.clicked.connect(self._on_generate_summary)
+        s_head.addWidget(self.summary_header_label)
+        s_head.addStretch(1)
+        s_head.addWidget(self.summary_regen_btn)
+        s_layout.addLayout(s_head)
+        self.summary_view = QPlainTextEdit()
+        self.summary_view.setReadOnly(True)
+        s_layout.addWidget(self.summary_view)
+        self.tabs.addTab(summary_tab, "Summary")
+
+        right_layout.addWidget(self.tabs)
         splitter.addWidget(right_panel)
         splitter.setStretchFactor(0, 2)
         splitter.setStretchFactor(1, 3)
@@ -423,7 +484,7 @@ class PodcastView(QWidget):
         self._h_splitter = splitter
         self._v_splitter = top_splitter
 
-        # Selection change to update transcript pane
+        # Selection change to update episode header and tabs
         self.list.selectionModel().currentChanged.connect(self._on_selection_changed)
 
     # Splitter persistence helpers
@@ -546,10 +607,11 @@ class PodcastView(QWidget):
         idx = self.model.index(row)
         rect = self.list.visualRect(idx)
         self.list.viewport().update(rect)
-        # Refresh transcript pane if this is the selected row
+        # Refresh transcript/summary panes if this is the selected row
         cur = self.list.currentIndex()
         if cur.isValid() and cur.row() == row:
             self._update_transcript_for_selection()
+            self._update_summary_for_selection()
 
     def load(self, sub) -> None:
         self._current_sub = sub
@@ -618,8 +680,10 @@ class PodcastView(QWidget):
         for i, st in enumerate(statuses):
             if st != "idle":
                 self.model.setStatus(i, st)
-        # Update transcript pane for current selection
+        # Update panes for current selection
+        self._update_episode_header_for_selection()
         self._update_transcript_for_selection()
+        self._update_summary_for_selection()
 
     def _fetch_pixmap(self, url: str) -> QPixmap | None:
         try:
@@ -635,20 +699,25 @@ class PodcastView(QWidget):
         return None
 
     def _on_selection_changed(self, current: QModelIndex, _prev: QModelIndex) -> None:
+        self._update_episode_header_for_selection()
         self._update_transcript_for_selection()
+        self._update_summary_for_selection()
 
     def _update_transcript_for_selection(self) -> None:
         idx = self.list.currentIndex()
         if not idx.isValid():
+            self.transcript_header_label.setText("No episode selected")
             self.transcript_view.setPlainText("")
             return
         row = idx.row()
         if not (0 <= row < len(self.model._episodes)):
+            self.transcript_header_label.setText("")
             self.transcript_view.setPlainText("")
             return
         ep = self.model._episodes[row]
         sub = getattr(self, "_current_sub", None)
         if sub is None:
+            self.transcript_header_label.setText("")
             self.transcript_view.setPlainText("")
             return
         key = self._feeds_meta.get_or_create_key(sub.name, sub.feed_url)
@@ -659,8 +728,75 @@ class PodcastView(QWidget):
                 text = Path(entry.txt_path).read_text(encoding="utf-8", errors="ignore")
             except Exception:
                 text = "(Could not read transcript file)"
+            ts = entry.updated_at or entry.created_at or ""
+            hdr = f"Transcribed: {ts}" if ts else "Transcribed"
+            self.transcript_header_label.setText(hdr)
             self.transcript_view.setPlainText(text)
         else:
+            self.transcript_header_label.setText("No transcript yet")
             self.transcript_view.setPlainText(
-                "No transcript yet. Select an episode and click the transcribe icon to generate it."
+                "No transcript yet. Select an episode and click the transcribe icon or Regenerate to generate it."
             )
+
+    def _update_summary_for_selection(self) -> None:
+        # Placeholder summary population until summaries exist
+        idx = self.list.currentIndex()
+        if not idx.isValid():
+            self.summary_header_label.setText("No episode selected")
+            self.summary_view.setPlainText("")
+            return
+        row = idx.row()
+        if not (0 <= row < len(self.model._episodes)):
+            self.summary_header_label.setText("")
+            self.summary_view.setPlainText("")
+            return
+        # No summaries yet; show placeholder
+        self.summary_header_label.setText("No summary yet")
+        self.summary_view.setPlainText("Summary generation not implemented yet.")
+
+    def _update_episode_header_for_selection(self) -> None:
+        idx = self.list.currentIndex()
+        if not idx.isValid():
+            self.episode_title.setText("")
+            self.episode_meta.setText("")
+            self.episode_desc.setText("")
+            self.episode_art.clear()
+            return
+        row = idx.row()
+        if not (0 <= row < len(self.model._episodes)):
+            self.episode_title.setText("")
+            self.episode_meta.setText("")
+            self.episode_desc.setText("")
+            self.episode_art.clear()
+            return
+        ep = self.model._episodes[row]
+        self.episode_title.setText(ep.title or "")
+        # Meta: date + duration
+        meta_parts: list[str] = []
+        if ep.published:
+            meta_parts.append(ep.published.strftime("%b %d, %Y"))
+        if ep.duration is not None:
+            minutes = ep.duration // 60
+            seconds = ep.duration % 60
+            meta_parts.append(f"{minutes:d}:{seconds:02d}")
+        self.episode_meta.setText(" \u2022 ".join(meta_parts))
+        self.episode_desc.setText(clean_html(ep.description or ""))
+        # Artwork
+        art_url = ep.artwork_url
+        if art_url:
+            pix = self._fetch_pixmap(art_url)
+            if pix is not None:
+                target = QSize(self.episode_art.maximumWidth(), self.episode_art.maximumHeight())
+                if target.width() <= 0 or target.height() <= 0:
+                    target = QSize(120, 120)
+                self.episode_art.setPixmap(
+                    pix.scaled(target, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
+                )
+            else:
+                self.episode_art.clear()
+        else:
+            self.episode_art.clear()
+
+    def _on_generate_summary(self) -> None:
+        # Future: hook up summary generation. For now, just refresh placeholder.
+        self._update_summary_for_selection()
