@@ -39,6 +39,7 @@ from ..services import RssService
 from ..services.feeds_meta import FeedsMetaService
 from ..services.episodes_index import EpisodesIndexService
 from ..services.ingestion import IngestionService
+from ..services.jobs import JobsService, Job
 
 
 class EpisodeListModel(QAbstractListModel):
@@ -269,17 +270,17 @@ class PodcastView(QWidget):
     # Signal to update UI from worker thread safely
     transcribeFinished = pyqtSignal(int, bool)
 
-    def __init__(self, rss: RssService, feeds_meta: FeedsMetaService, episodes_index: EpisodesIndexService, ingestion: IngestionService, on_back) -> None:
+    def __init__(self, rss: RssService, feeds_meta: FeedsMetaService, episodes_index: EpisodesIndexService, ingestion: IngestionService, on_back, jobs: JobsService | None = None) -> None:
         super().__init__()
         self.rss = rss
         self._feeds_meta = feeds_meta
         self._episodes_index = episodes_index
         self._ingestion = ingestion
+        self._jobs = jobs
         self._insert_chunk = 200
         self._default_art_url: str | None = None
-        # Simple single-worker queue to serialize transcriptions
-        from concurrent.futures import ThreadPoolExecutor
-        self._worker = ThreadPoolExecutor(max_workers=1)
+        # Map job id -> row index for UI updates
+        self._job_rows: dict[str, int] = {}
         root = QVBoxLayout(self)
 
         # Podcast details (top of window, above splitter). Scrollable with max height.
@@ -443,6 +444,12 @@ class PodcastView(QWidget):
 
         # Selection change to update episode header and tabs
         self.list.selectionModel().currentChanged.connect(self._on_selection_changed)
+        # Listen to JobsService updates if available (UI-thread marshal in handler)
+        if self._jobs is not None:
+            try:
+                self._jobs.add_listener(self._on_job_update)
+            except Exception:
+                pass
 
     # Splitter persistence helpers
     def apply_splitter_sizes(self, vertical: list[int] | None, horizontal: list[int] | None) -> None:
@@ -483,74 +490,24 @@ class PodcastView(QWidget):
             return
         enclosure = getattr(ep, "enclosure_url", None)
         guid = getattr(ep, "guid", None)
-        if not enclosure:
+        if not enclosure or self._jobs is None:
             self.model.setStatus(row, "failed")
             return
-        # Run download + ingestion in background queue (keeps UI responsive)
-        def do_work():
-            from urllib.request import urlopen
-            import tempfile, os
-            try:
-                with urlopen(enclosure) as resp:
-                    data = resp.read()
-                fd, tmp_path = tempfile.mkstemp(suffix=".mp3")
-                os.close(fd)
-                with open(tmp_path, "wb") as f:
-                    f.write(data)
-            except Exception as e:
-                return (False, str(e), None)
-            try:
-                result = self._ingestion.ingest_episode(
-                    Path(tmp_path),
-                    podcast=sub.name,
-                    episode=ep.title,
-                    force=bool(force),
-                    reporter=None,
-                    feed_url=sub.feed_url,
-                    enclosure_url=enclosure,
-                    guid=guid,
-                )
-                return (True, None, result)
-            except Exception as e:
-                return (False, str(e), None)
-
-        fut = self._worker.submit(do_work)
-
-        def _done(_f):
-            ok, err, result = _f.result()
-            key = self._feeds_meta.get_or_create_key(sub.name, sub.feed_url)
-            pub_iso = ep.published.isoformat() if ep.published else None
-            # Update index on the worker thread
-            if ok and result is not None:
-                self._episodes_index.mark_transcribed(
-                    key,
-                    title=ep.title,
-                    published_date=pub_iso or None,
-                    guid=guid,
-                    enclosure_url=enclosure,
-                    episode_dir=result.path,
-                    vtt_path=result.transcript.vtt_path,
-                    txt_path=result.transcript.txt_path,
-                )
-            else:
-                self._episodes_index.mark_failed(
-                    key,
-                    title=ep.title,
-                    published_date=pub_iso or None,
-                    guid=guid,
-                    enclosure_url=enclosure,
-                    error=str(err or "error"),
-                )
-            # Emit to UI thread
-            try:
-                self.transcribeFinished.emit(row, bool(ok and result is not None))
-            except Exception:
-                # Fallback to timer if signal emission fails
-                def update_ui():
-                    self._on_transcribe_result(row, bool(ok and result is not None))
-                QTimer.singleShot(0, update_ui)
-
-        fut.add_done_callback(_done)
+        pub_iso = ep.published.isoformat() if getattr(ep, "published", None) else None
+        try:
+            job_id = self._jobs.enqueue_transcription(
+                podcast=sub.name,
+                title=ep.title,
+                feed_url=sub.feed_url,
+                enclosure_url=enclosure,
+                guid=guid,
+                published_date=pub_iso,
+                force=bool(force),
+            )
+            self._job_rows[job_id] = row
+        except Exception:
+            self.model.setStatus(row, "failed")
+            return
 
     def _on_transcribe_result(self, row: int, ok: bool) -> None:
         if not (0 <= row < self.model.rowCount()):
@@ -569,6 +526,31 @@ class PodcastView(QWidget):
         if cur.isValid() and cur.row() == row:
             self._update_transcript_for_selection()
             self._update_summary_for_selection()
+
+    # Listener for JobsService updates
+    def _on_job_update(self, job: Job) -> None:
+        def apply():
+            row = self._job_rows.get(job.id)
+            if row is None or not (0 <= row < self.model.rowCount()):
+                return
+            if job.status == "running":
+                self.model.setStatus(row, "in_progress")
+            elif job.status == "succeeded":
+                self.model._episodes[row].transcribed = True
+                self.model.setStatus(row, "transcribed")
+                cur = self.list.currentIndex()
+                if cur.isValid() and cur.row() == row:
+                    self._update_transcript_for_selection()
+                    self._update_summary_for_selection()
+            elif job.status == "failed":
+                self.model.setStatus(row, "failed")
+                cur = self.list.currentIndex()
+                if cur.isValid() and cur.row() == row:
+                    self._update_transcript_for_selection()
+        try:
+            QTimer.singleShot(0, apply)
+        except Exception:
+            apply()
 
     def load(self, sub) -> None:
         self._current_sub = sub

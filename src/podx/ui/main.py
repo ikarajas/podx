@@ -4,7 +4,7 @@ from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 
-from PyQt6.QtCore import Qt, QAbstractListModel, QModelIndex, QSize, QRect
+from PyQt6.QtCore import Qt, QAbstractListModel, QModelIndex, QSize, QRect, QTimer
 from PyQt6.QtGui import QIcon, QPixmap, QPainter, QMouseEvent, QPalette, QColor, QAction
 from PyQt6.QtWidgets import (
     QApplication,
@@ -40,6 +40,7 @@ from podx.services.episodes_index import EpisodesIndexService
 from podx.services.ingestion import IngestionService
 from podx.ui.episodes import PodcastView
 from .utils import clean_html
+from podx.services.jobs import JobsService, Job
 
 
 class _SubscriptionListModel(QAbstractListModel):
@@ -479,7 +480,8 @@ class MainWindow(QMainWindow):
         )
         self.stack.addWidget(self.subscriptions_view)
         self.ingestion_service = IngestionService(cfg, self.feeds_meta_service, self.episodes_index_service)
-        self.podcast_view = PodcastView(self.rss_service, self.feeds_meta_service, self.episodes_index_service, self.ingestion_service, on_back=self.show_subscriptions)
+        self.jobs_service = JobsService(self.ingestion_service)
+        self.podcast_view = PodcastView(self.rss_service, self.feeds_meta_service, self.episodes_index_service, self.ingestion_service, on_back=self.show_subscriptions, jobs=self.jobs_service)
         self.stack.addWidget(self.podcast_view)
         self.search_view = SearchView(
             self.directory_service,
@@ -499,9 +501,10 @@ class MainWindow(QMainWindow):
         except Exception:
             pass
 
-        # Placeholders for not-yet-implemented views
-        self.jobs_view = self._make_placeholder_view("Jobs queue — coming soon")
+        # Jobs view (wired to JobsService)
+        self.jobs_view = JobsView(self.jobs_service)
         self.stack.addWidget(self.jobs_view)
+        # Settings placeholder
         self.settings_view = self._make_placeholder_view("Settings — coming soon")
         self.stack.addWidget(self.settings_view)
 
@@ -636,5 +639,35 @@ def main() -> int:
     return app.exec()
 
 
+class JobsView(QWidget):
+    """Simple jobs list showing status and percent for background tasks."""
+
+    def __init__(self, jobs: JobsService) -> None:
+        super().__init__()
+        self.jobs = jobs
+        self.items: dict[str, QListWidgetItem] = {}
+        layout = QVBoxLayout(self)
+        self.list = QListWidget()
+        layout.addWidget(self.list)
+        # Subscribe to job updates
+        try:
+            self.jobs.add_listener(self._on_job_update)
+        except Exception:
+            pass
+
+    def _on_job_update(self, job: Job) -> None:
+        def apply():
+            item = self.items.get(job.id)
+            text = f"{job.type.title()} — {job.podcast}: {job.title}  •  {job.percent}%  •  {job.status}"
+            if item is None:
+                item = QListWidgetItem(text)
+                self.items[job.id] = item
+                self.list.addItem(item)
+            else:
+                item.setText(text)
+        try:
+            QTimer.singleShot(0, apply)
+        except Exception:
+            apply()
 if __name__ == "__main__":  # pragma: no cover - manual execution
     raise SystemExit(main())
