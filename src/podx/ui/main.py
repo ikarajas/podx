@@ -5,7 +5,7 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 
 from PyQt6.QtCore import Qt, QAbstractListModel, QModelIndex, QSize, QRect
-from PyQt6.QtGui import QIcon, QPixmap, QPainter, QMouseEvent, QPalette, QColor
+from PyQt6.QtGui import QIcon, QPixmap, QPainter, QMouseEvent, QPalette, QColor, QAction
 from PyQt6.QtWidgets import (
     QApplication,
     QLabel,
@@ -25,6 +25,8 @@ from PyQt6.QtWidgets import (
     QMessageBox,
     QVBoxLayout,
     QWidget,
+    QToolBar,
+    QWidgetAction,
 )
 
 from podx.app import get_config
@@ -226,9 +228,6 @@ class SubscriptionListView(QWidget):
         # Double-click row to open podcast (same as open icon)
         self.list.doubleClicked.connect(self.openRequested)
         layout.addWidget(self.list)
-        self.search_button = QPushButton("Search Podcasts")
-        self.search_button.clicked.connect(on_search)
-        layout.addWidget(self.search_button)
         # Hook delegate events
         # We use methods called by delegate via parent() to avoid signal boilerplate
         self.refresh()
@@ -337,13 +336,6 @@ class SearchView(QWidget):
         self.subscriptions = subscriptions
         self.on_subscribed = on_subscribed
         layout = QVBoxLayout(self)
-        # Top-left back button row
-        header_row = QHBoxLayout()
-        self.back_button = QPushButton("Back to Subscriptions")
-        self.back_button.clicked.connect(on_back)
-        header_row.addWidget(self.back_button, 0)
-        header_row.addStretch(1)
-        layout.addLayout(header_row)
 
         # Search bar row with button on the right
         top_row = QHBoxLayout()
@@ -497,6 +489,8 @@ class MainWindow(QMainWindow):
         )
         self.stack.addWidget(self.search_view)
         self.stack.setCurrentWidget(self.subscriptions_view)
+        # Top navigation toolbar
+        self._init_toolbar()
         # Apply saved splitter sizes for episodes view
         try:
             v = cfg.ui.episodes_vertical_splitter
@@ -504,6 +498,12 @@ class MainWindow(QMainWindow):
             self.podcast_view.apply_splitter_sizes(v if v else None, h if h else None)
         except Exception:
             pass
+
+        # Placeholders for not-yet-implemented views
+        self.jobs_view = self._make_placeholder_view("Jobs queue — coming soon")
+        self.stack.addWidget(self.jobs_view)
+        self.settings_view = self._make_placeholder_view("Settings — coming soon")
+        self.stack.addWidget(self.settings_view)
 
     def closeEvent(self, event):  # type: ignore[override]
         # Persist current window size to config
@@ -527,19 +527,106 @@ class MainWindow(QMainWindow):
     def show_podcast(self, sub: Subscription) -> None:
         self.podcast_view.load(sub)
         self.stack.setCurrentWidget(self.podcast_view)
+        self._set_active_nav(None)
 
     def show_subscriptions(self) -> None:
         self.subscriptions_view.refresh()
         self.stack.setCurrentWidget(self.subscriptions_view)
+        self._set_active_nav("subs")
 
     def show_search(self) -> None:
         self.stack.setCurrentWidget(self.search_view)
+        self._set_active_nav("search")
+
+    def show_jobs(self) -> None:
+        # Placeholder page for Jobs
+        self.stack.setCurrentWidget(self.jobs_view)
+        self._set_active_nav("jobs")
+
+    def show_settings(self) -> None:
+        # Placeholder page for Settings
+        self.stack.setCurrentWidget(self.settings_view)
+        self._set_active_nav("settings")
 
     def _on_subscribed(self, sub: Subscription) -> None:
         # Refresh, select the new subscription, and navigate back
         self.subscriptions_view.refresh()
         self.subscriptions_view.select_by_feed(sub.feed_url)
         self.stack.setCurrentWidget(self.subscriptions_view)
+        self._set_active_nav("subs")
+
+    # UI helpers
+    def _make_placeholder_view(self, text: str) -> QWidget:
+        w = QWidget()
+        layout = QVBoxLayout(w)
+        layout.addStretch(1)
+        lbl = QLabel(text)
+        lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(lbl)
+        layout.addStretch(1)
+        return w
+
+    def _init_toolbar(self) -> None:
+        tb = QToolBar("Navigation", self)
+        # Show text under icons for clarity
+        tb.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextUnderIcon)
+        # Use 24x24 logical icon size; ideal for 1x/2x assets.
+        tb.setIconSize(QSize(24, 24))
+        tb.setMovable(False)
+
+        style = self.style()
+        # Placeholder icons: using standard QStyle icons. You can later replace
+        # these with custom assets (recommended SVG 24x24 viewBox with some
+        # padding; or PNG at 24x24 and 48x48 for HiDPI) loaded via QIcon.
+
+        self.act_subs = QAction(style.standardIcon(QStyle.StandardPixmap.SP_DirHomeIcon), "Subscriptions", self)
+        self.act_subs.setStatusTip("Subscriptions (Ctrl+1)")
+        self.act_subs.setCheckable(True)
+        self.act_subs.triggered.connect(self.show_subscriptions)
+        self.act_subs.setShortcut("Ctrl+1")
+
+        self.act_search = QAction(style.standardIcon(QStyle.StandardPixmap.SP_FileDialogContentsView), "Search", self)
+        self.act_search.setStatusTip("Search (Ctrl+F)")
+        self.act_search.setCheckable(True)
+        self.act_search.triggered.connect(self.show_search)
+        self.act_search.setShortcut("Ctrl+F")
+
+        self.act_jobs = QAction(style.standardIcon(QStyle.StandardPixmap.SP_BrowserReload), "Jobs", self)
+        self.act_jobs.setStatusTip("Jobs queue (Ctrl+J)")
+        self.act_jobs.setCheckable(True)
+        self.act_jobs.triggered.connect(self.show_jobs)
+        self.act_jobs.setShortcut("Ctrl+J")
+
+        self.act_settings = QAction(style.standardIcon(QStyle.StandardPixmap.SP_FileDialogDetailedView), "Settings", self)
+        self.act_settings.setStatusTip("Settings (Ctrl+,)")
+        self.act_settings.setCheckable(True)
+        self.act_settings.triggered.connect(self.show_settings)
+        self.act_settings.setShortcut("Ctrl+,")
+
+        tb.addAction(self.act_subs)
+        tb.addAction(self.act_search)
+        tb.addAction(self.act_jobs)
+
+        # Spacer to push Settings to the right side
+        spacer = QWidget()
+        spacer.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
+        spacer_action = QWidgetAction(self)
+        spacer_action.setDefaultWidget(spacer)
+        tb.addAction(spacer_action)
+
+        tb.addAction(self.act_settings)
+        self.addToolBar(Qt.ToolBarArea.TopToolBarArea, tb)
+        self._set_active_nav("subs")
+
+    def _set_active_nav(self, which: str | None) -> None:
+        # Keep action checked state in sync with the current view
+        for key, act in {
+            "subs": self.act_subs,
+            "search": self.act_search,
+            "jobs": self.act_jobs,
+            "settings": self.act_settings,
+        }.items():
+            act.setChecked(which == key)
 
 
 def main() -> int:

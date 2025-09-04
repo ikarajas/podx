@@ -281,12 +281,6 @@ class PodcastView(QWidget):
         from concurrent.futures import ThreadPoolExecutor
         self._worker = ThreadPoolExecutor(max_workers=1)
         root = QVBoxLayout(self)
-        header = QHBoxLayout()
-        back = QPushButton("Back")
-        back.clicked.connect(on_back)
-        header.addWidget(back)
-        header.addStretch(1)
-        root.addLayout(header)
 
         # Podcast details (top of window, above splitter). Scrollable with max height.
         details_scroll = QScrollArea()
