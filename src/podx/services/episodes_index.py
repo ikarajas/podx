@@ -36,9 +36,13 @@ class EpisodeIndexEntry:
     episode_dir: str | None = None
     vtt_path: str | None = None
     txt_path: str | None = None
+    # Transcript timestamps (persisted so UI shows accurate generation time)
     created_at: str | None = None
     updated_at: str | None = None
     error: str | None = None
+    # Summary metadata (persisted for future summary UI)
+    summary_path: str | None = None
+    summary_updated_at: str | None = None
 
 
 class EpisodesIndexService:
@@ -129,6 +133,41 @@ class EpisodesIndexService:
         entry.updated_at = now
         if not entry.created_at:
             entry.created_at = now
+        mp[episode_id] = entry
+        self._save_map(key, mp)
+        return entry
+
+    def mark_summary(
+        self,
+        key: str,
+        *,
+        title: str,
+        published_date: Optional[str],
+        guid: Optional[str],
+        enclosure_url: Optional[str],
+        summary_path: Path,
+        episode_dir: Optional[Path] = None,
+    ) -> EpisodeIndexEntry:
+        """Record or update summary metadata for an episode.
+
+        Notes
+        - This mirrors ``mark_transcribed`` but does not change transcript
+          timestamps. ``summary_updated_at`` is tracked separately so the UI
+          can display accurate generation times for both transcript and summary.
+        - Summary generation is not yet wired up in the UI; this method prepares
+          persistent storage for that future feature.
+        """
+        mp = self._load_map(key)
+        episode_id = _make_episode_id(guid, enclosure_url, published_date, title)
+        now = datetime.now().isoformat()
+        entry = mp.get(episode_id) or EpisodeIndexEntry(
+            episode_id=episode_id, title=title, published_date=published_date, guid=guid, enclosure_url=enclosure_url
+        )
+        # Keep transcript timestamps intact; only update summary fields here.
+        if episode_dir is not None:
+            entry.episode_dir = str(episode_dir)
+        entry.summary_path = str(summary_path)
+        entry.summary_updated_at = now
         mp[episode_id] = entry
         self._save_map(key, mp)
         return entry
