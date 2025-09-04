@@ -691,6 +691,14 @@ class PodcastView(QWidget):
             hdr = f"Transcribed: {ts}" if ts else "Transcribed"
             self.transcript_header_label.setText(hdr)
             self.transcript_view.setPlainText(text)
+        elif entry and entry.status == "failed":
+            ts = entry.updated_at or entry.created_at or ""
+            hdr = f"Transcription failed: {ts}" if ts else "Transcription failed"
+            self.transcript_header_label.setText(hdr)
+            reason = entry.error or "Unknown error"
+            self.transcript_view.setPlainText(
+                f"Transcription failed.\n\nReason: {reason}\n\nClick Regenerate to try again."
+            )
         else:
             self.transcript_header_label.setText("No transcript yet")
             self.transcript_view.setPlainText(
