@@ -1,15 +1,32 @@
 from __future__ import annotations
 
-import subprocess
 from concurrent.futures import Future, ThreadPoolExecutor
 from pathlib import Path
 from typing import Callable, Optional
 import os
 
-import sys
-import shutil
 from podx.services.config import WhisperSettings
 from podx.services.progress import ProgressFeeder, ProgressReporter
+
+
+def _language_from_args(args: list[str]) -> Optional[str]:
+    try:
+        if "--language" in args:
+            i = args.index("--language")
+            if i + 1 < len(args):
+                return args[i + 1]
+    except Exception:
+        pass
+    return None
+
+
+def _fmt_ts(s: float) -> str:
+    ms = int(round((s - int(s)) * 1000))
+    s_int = int(s)
+    h = s_int // 3600
+    m = (s_int % 3600) // 60
+    sec = s_int % 60
+    return f"{h:02d}:{m:02d}:{sec:02d}.{ms:03d}"
 
 
 class WhisperRunner:
@@ -61,40 +78,20 @@ class WhisperRunner:
         reporter: Optional[ProgressReporter] = None,
         total_duration_sec: Optional[int] = None,
     ) -> None:
-        """Run Whisper to produce VTT and TXT transcripts.
+        """Run Whisper via Python libraries to produce VTT and TXT transcripts.
 
-        The underlying engine is selected via ``settings.runner``:
-        - "mlx": uses the ``mlx_whisper`` CLI (macOS arm64)
-        - "whisper"/"openai": uses the ``whisper`` CLI (cross-platform)
-
-        Streams stdout line-by-line, tees to ``log_file``, and optionally feeds
-        lines to a progress parser via ``reporter`` + ``total_duration_sec``.
+        Engines (all Python APIs, no shelling out):
+        - "faster": faster-whisper
+        - "mlx": mlx_whisper (falls back to faster-whisper if unavailable)
+        - "whisper"/"openai": openai-whisper Python package
         """
         runner = (self.settings.runner or "").lower()
 
-        # For the OpenAI whisper CLI, ffmpeg is required. For MLX, many inputs
-        # still rely on ffmpeg for decoding, but we don't hard-require it to
-        # allow simple WAV cases to proceed.
-
-        # All runners write to tmp output directory; ensure exists
+        # Ensure target directory exists
         output_dir = vtt_path.parent
-        output_stem = vtt_path.stem
+        output_dir.mkdir(parents=True, exist_ok=True)
 
-        # Build command per engine
-        if runner == "mlx":
-            cmd = [
-                "mlx_whisper",
-                str(audio_path),
-                "--model",
-                self.settings.model,
-                "--output-dir",
-                str(output_dir),
-                "--output-name",
-                output_stem,
-                "--output-format",
-                "all",
-            ]
-        elif runner == "faster":
+        if runner == "faster":
             try:
                 from faster_whisper import WhisperModel  # type: ignore
             except Exception as exc:  # pragma: no cover - optional dep
@@ -136,18 +133,17 @@ class WhisperRunner:
             vtt_lines: list[str] = ["WEBVTT", ""]
             for seg in segments:
                 if feeder is not None:
-                    feeder.consume_line(f"[{_ts(seg.start)} --> {_ts(seg.end)}]")
+                    feeder.consume_line(f"[{_fmt_ts(seg.start)} --> {_fmt_ts(seg.end)}]")
                 text = (getattr(seg, "text", "") or "").strip()
                 if text:
                     txt_lines.append(text)
-                    vtt_lines.append(f"{_ts(seg.start)} --> {_ts(seg.end)}")
+                    vtt_lines.append(f"{_fmt_ts(seg.start)} --> {_fmt_ts(seg.end)}")
                     vtt_lines.append(text)
                     vtt_lines.append("")
 
             if feeder is not None:
                 feeder.done()
 
-            output_dir.mkdir(parents=True, exist_ok=True)
             vtt_path.write_text("\n".join(vtt_lines), encoding="utf-8")
             txt_path.write_text("\n".join(txt_lines), encoding="utf-8")
 
@@ -156,72 +152,146 @@ class WhisperRunner:
                 logf.write(f"faster-whisper: model={self.settings.model}, duration={dur}\n")
 
             return
-        else:
-            if shutil.which("ffmpeg") is None:
-                raise RuntimeError(
-                    "ffmpeg is required for the 'whisper' runner but not found on PATH. Install ffmpeg and try again."
-                )
-            # Default to OpenAI Whisper CLI for non-MLX platforms
-            # Note: OpenAI whisper uses output_dir only; filenames are based on input stem.
-            cmd = [
-                "whisper",
-                str(audio_path),
-                "--model",
-                self.settings.model or "small.en",
-                "--output_dir",
-                str(output_dir),
-                "--output_format",
-                "all",
-            ]
-
-        cmd.extend(self.settings.extra_args)
-
-        feeder: Optional[ProgressFeeder] = None
-        if reporter is not None and total_duration_sec and total_duration_sec > 0:
-            feeder = ProgressFeeder(total_duration_sec, reporter)
-
-        # Use Popen to stream output line-by-line and tee to log
-        with open(log_file, "a", encoding="utf-8", errors="ignore") as logf:
+        elif runner == "mlx":
+            # Use mlx_whisper Python API (no CLI). Fail fast if not available.
             try:
-                proc = subprocess.Popen(
-                    cmd,
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.STDOUT,
-                    text=True,
-                    bufsize=1,
-                    universal_newlines=True,
-                )
-            except FileNotFoundError as exc:
-                engine = "mlx_whisper" if runner == "mlx" else "whisper"
-                raise RuntimeError(
-                    f"'{engine}' is not available on this system. Install the appropriate package and ensure ffmpeg is installed."
-                ) from exc
+                import mlx_whisper as _mlx  # type: ignore
+            except Exception as exc:  # pragma: no cover - optional dep
+                raise RuntimeError("mlx_whisper Python package is not installed in this environment.") from exc
 
-            assert proc.stdout is not None
-            for line in proc.stdout:
-                logf.write(line)
+            lang = _language_from_args(self.settings.extra_args)
+
+            # Resolve the transcribe callable across known package layouts
+            mlx_transcribe = None
+            try:
+                if hasattr(_mlx, "transcribe"):
+                    mlx_transcribe = getattr(_mlx, "transcribe")
+                else:  # e.g., module exposes function under submodule
+                    from mlx_whisper.transcribe import transcribe as _t  # type: ignore
+                    mlx_transcribe = _t
+            except Exception:
+                pass
+            if mlx_transcribe is None:
+                raise RuntimeError("mlx_whisper Python API not available: no transcribe() function found.")
+
+            # Call with tolerant signature handling (some versions differ)
+            result = None
+            last_err: Exception | None = None
+            for kwargs in (
+                {"model": self.settings.model or "small.en", "language": lang},
+                {"model": self.settings.model or "small.en"},
+                {},
+            ):
+                try:
+                    result = mlx_transcribe(str(audio_path), **kwargs)
+                    break
+                except TypeError as e:
+                    last_err = e
+                    continue
+            if result is None:
+                raise RuntimeError("mlx_whisper Python API call failed due to incompatible signature.") from last_err
+
+            # Normalize segments from return value (dict/obj/list/generator)
+            def _iter_segments(res):
+                segs = None
+                try:
+                    segs = getattr(res, "segments")
+                except Exception:
+                    pass
+                if segs is None and isinstance(res, dict):
+                    segs = res.get("segments")
+                if segs is None:
+                    segs = res  # may already be an iterable of segments
+                try:
+                    for sg in segs or []:
+                        yield sg
+                except TypeError:
+                    # Not iterable
+                    return
+
+            segments: list[tuple[float, float, str]] = []
+            try:
+                for seg in _iter_segments(result):
+                    # Segment can be object or dict
+                    s = 0.0
+                    e = 0.0
+                    t = ""
+                    try:
+                        s = float(getattr(seg, "start", seg.get("start", 0.0)))  # type: ignore[attr-defined]
+                        e = float(getattr(seg, "end", seg.get("end", 0.0)))  # type: ignore[attr-defined]
+                        raw_t = getattr(seg, "text", seg.get("text", ""))  # type: ignore[attr-defined]
+                        t = (raw_t or "").strip()
+                    except Exception:
+                        continue
+                    if t:
+                        segments.append((s, e, t))
+            except Exception as exc:
+                raise RuntimeError("mlx_whisper Python API returned unexpected result shape.") from exc
+
+            feeder: Optional[ProgressFeeder] = None
+            if reporter is not None and total_duration_sec and total_duration_sec > 0:
+                feeder = ProgressFeeder(total_duration_sec, reporter)
+
+            txt_lines: list[str] = []
+            vtt_lines: list[str] = ["WEBVTT", ""]
+            for s, e, t in segments:
                 if feeder is not None:
-                    feeder.consume_line(line)
-            rc = proc.wait()
+                    feeder.consume_line(f"[{_fmt_ts(s)} --> {_fmt_ts(e)}]")
+                if t:
+                    txt_lines.append(t)
+                    vtt_lines.append(f"{_fmt_ts(s)} --> {_fmt_ts(e)}")
+                    vtt_lines.append(t)
+                    vtt_lines.append("")
             if feeder is not None:
                 feeder.done()
-            if rc != 0:
-                raise subprocess.CalledProcessError(rc, cmd)
 
-        # The mlx runner already wrote to the exact desired filenames via output-name.
-        # For the whisper CLI fallback, rename outputs to the expected paths.
-        if runner != "mlx":
-            src_vtt = output_dir / f"{audio_path.stem}.vtt"
-            src_txt = output_dir / f"{audio_path.stem}.txt"
-            if src_vtt.exists() and src_vtt != vtt_path:
-                # Overwrite if present from a previous attempt
-                if vtt_path.exists():
-                    vtt_path.unlink()
-                shutil.move(str(src_vtt), str(vtt_path))
-            if src_txt.exists() and src_txt != txt_path:
-                if txt_path.exists():
-                    txt_path.unlink()
-                shutil.move(str(src_txt), str(txt_path))
+            vtt_path.write_text("\n".join(vtt_lines), encoding="utf-8")
+            txt_path.write_text("\n".join(txt_lines), encoding="utf-8")
+            with open(log_file, "a", encoding="utf-8", errors="ignore") as logf:
+                # Minimal diagnostics to help spot API differences
+                ver = getattr(_mlx, "__version__", "unknown")
+                logf.write(f"mlx-whisper: model={self.settings.model}, version={ver}, segments={len(segments)}\n")
+            return
+        else:  # "whisper" or "openai" Python package
+            try:
+                import whisper as ow  # type: ignore
+            except Exception as exc:  # pragma: no cover - optional dep
+                raise RuntimeError(
+                    "The 'whisper' runner requires the 'openai-whisper' package. Install with 'pip install openai-whisper'."
+                ) from exc
+
+            model = ow.load_model(self.settings.model or "small.en")
+            lang = _language_from_args(self.settings.extra_args)
+
+            # Note: The Python API does not expose streaming progress callbacks.
+            # We transcribe once and then emit a final progress update.
+            result = model.transcribe(str(audio_path), language=lang, verbose=False)
+            segs = result.get("segments") or []
+
+            txt_lines: list[str] = []
+            vtt_lines: list[str] = ["WEBVTT", ""]
+            for seg in segs:
+                s = float(seg.get("start", 0.0))
+                e = float(seg.get("end", 0.0))
+                t = (seg.get("text", "") or "").strip()
+                if t:
+                    txt_lines.append(t)
+                    vtt_lines.append(f"{_fmt_ts(s)} --> {_fmt_ts(e)}")
+                    vtt_lines.append(t)
+                    vtt_lines.append("")
+
+            vtt_path.write_text("\n".join(vtt_lines), encoding="utf-8")
+            txt_path.write_text("\n".join(txt_lines), encoding="utf-8")
+
+            # Emit final progress if reporter present
+            if reporter is not None and total_duration_sec and total_duration_sec > 0:
+                try:
+                    reporter.on_update(100, int(total_duration_sec), int(total_duration_sec))
+                except Exception:
+                    pass
+            with open(log_file, "a", encoding="utf-8", errors="ignore") as logf:
+                logf.write(f"openai-whisper: model={self.settings.model}\n")
+            return
 
 
 def get_runner(settings: WhisperSettings) -> WhisperRunner:
