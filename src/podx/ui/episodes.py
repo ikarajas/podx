@@ -46,9 +46,8 @@ class EpisodeListModel(QAbstractListModel):
     DescriptionRole = TitleRole + 1
     DurationRole = TitleRole + 2
     DateRole = TitleRole + 3
-    ArtworkRole = TitleRole + 4
-    TranscribedRole = TitleRole + 5
-    StatusRole = TitleRole + 6  # 'idle' | 'in_progress' | 'failed' | 'transcribed'
+    TranscribedRole = TitleRole + 4
+    StatusRole = TitleRole + 5  # 'idle' | 'in_progress' | 'failed' | 'transcribed'
 
     def __init__(self, episodes: List[FeedEpisode] | None = None, parent: QObject | None = None) -> None:
         super().__init__(parent)
@@ -71,8 +70,6 @@ class EpisodeListModel(QAbstractListModel):
             return ep.duration
         if role == self.DateRole:
             return ep.published
-        if role == self.ArtworkRole:
-            return ep.artwork_url
         if role == self.TranscribedRole:
             return ep.transcribed
         if role == self.StatusRole:
@@ -90,7 +87,6 @@ class EpisodeListModel(QAbstractListModel):
             int(self.DescriptionRole): b"description",
             int(self.DurationRole): b"duration",
             int(self.DateRole): b"date",
-            int(self.ArtworkRole): b"artwork",
             int(self.TranscribedRole): b"transcribed",
             int(self.StatusRole): b"status",
         }
@@ -125,17 +121,14 @@ class EpisodeDelegate(QStyledItemDelegate):
 
     def __init__(self, parent: QObject | None = None) -> None:
         super().__init__(parent)
-        self._pixmap_cache: dict[str, QPixmap] = {}
         self._icon_size = 24
         self._margin = 8
-        self._thumb_px = 80
         self._item_height = 96
         style = QWidget().style()
         self._transcribe_icon = style.standardIcon(QStyle.StandardPixmap.SP_FileDialogDetailedView)
         self._done_icon = style.standardIcon(QStyle.StandardPixmap.SP_DialogApplyButton)
         self._progress_icon = style.standardIcon(QStyle.StandardPixmap.SP_BrowserReload)
         self._failed_icon = style.standardIcon(QStyle.StandardPixmap.SP_MessageBoxWarning)
-        self._default_art: QPixmap | None = None
 
     # Painting
     def paint(self, painter: QPainter, option: QStyleOptionViewItem, index: QModelIndex) -> None:  # type: ignore[override]
@@ -144,24 +137,8 @@ class EpisodeDelegate(QStyledItemDelegate):
         selected = bool(option.state & QStyle.StateFlag.State_Selected)
         if selected:
             painter.fillRect(rect, option.palette.highlight())
-        # Fixed-size artwork to avoid per-paint scaling
-        art_rect = QRect(
-            rect.left() + self._margin,
-            rect.top() + self._margin,
-            self._thumb_px,
-            self._thumb_px,
-        )
-        art_url = index.data(EpisodeListModel.ArtworkRole)
-        pix = None
-        if art_url:
-            pix = self._get_pixmap(art_url)
-        if pix is None and self._default_art is not None:
-            pix = self._default_art
-        if pix:
-            # Draw at native size (already scaled once and cached)
-            painter.drawPixmap(art_rect.topLeft(), pix)
-        # Text area
-        text_left = art_rect.right() + self._margin
+        # Text area (no per-item artwork for performance)
+        text_left = rect.left() + self._margin
         text_width = rect.width() - (text_left - rect.left()) - self._icon_size - self._margin
         y = rect.top() + self._margin
 
@@ -235,34 +212,6 @@ class EpisodeDelegate(QStyledItemDelegate):
         return QSize(-1, self._item_height)
 
     # Helpers
-    def _get_pixmap(self, url: str) -> QPixmap | None:
-        pix = self._pixmap_cache.get(url)
-        if pix is not None:
-            return pix
-        p = QPixmap()
-        if url.startswith("http"):
-            try:
-                from urllib.request import urlopen
-
-                with urlopen(url) as resp:
-                    data = resp.read()
-                p.loadFromData(data)
-            except Exception:
-                p = None
-        else:
-            p.load(url)
-        if p and not p.isNull():
-            # Scale once to target size and cache to avoid repeated resampling
-            scaled = p.scaled(
-                self._thumb_px,
-                self._thumb_px,
-                Qt.AspectRatioMode.KeepAspectRatio,
-                Qt.TransformationMode.SmoothTransformation,
-            )
-            self._pixmap_cache[url] = scaled
-            return scaled
-        return None
-
     def _icon_rect(self, option: QStyleOptionViewItem) -> QRect:
         rect = option.rect
         x = rect.right() - self._margin - self._icon_size
@@ -285,14 +234,6 @@ class EpisodeDelegate(QStyledItemDelegate):
                     self.transcribeRequested.emit(index)
                 return True
         return super().editorEvent(event, model, option, index)
-
-    # Configuration
-    def set_default_art(self, url: str | None) -> None:
-        if not url:
-            self._default_art = None
-            return
-        pix = self._get_pixmap(url)
-        self._default_art = pix
 
     def helpEvent(self, event, view, option, index):  # type: ignore[override]
         if event.type() == QEvent.Type.ToolTip:
@@ -335,6 +276,7 @@ class PodcastView(QWidget):
         self._episodes_index = episodes_index
         self._ingestion = ingestion
         self._insert_chunk = 200
+        self._default_art_url: str | None = None
         # Simple single-worker queue to serialize transcriptions
         from concurrent.futures import ThreadPoolExecutor
         self._worker = ThreadPoolExecutor(max_workers=1)
@@ -655,11 +597,9 @@ class PodcastView(QWidget):
                 self.podcast_icon.clear()
         else:
             self.podcast_icon.clear()
-        # Provide default artwork to delegate for episodes lacking an image
-        try:
-            self.delegate.set_default_art(icon_url)
-        except Exception:
-            pass
+        # Store default artwork URL for episode header fallback
+        self._default_art_url = icon_url if icon_url else None
+        # Episode list no longer displays per-item artwork; header shows art.
         episodes = self.rss.fetch_episodes(sub.feed_url)
         # Mark transcribed/failed using episodes index for this subscription key
         key = self._feeds_meta.get_or_create_key(sub.name, sub.feed_url)
@@ -801,18 +741,19 @@ class PodcastView(QWidget):
         self.episode_meta.setText(" \u2022 ".join(meta_parts))
         self.episode_desc.setText(clean_html(ep.description or ""))
         # Artwork
-        art_url = ep.artwork_url
-        if art_url:
-            pix = self._fetch_pixmap(art_url)
-            if pix is not None:
-                target = QSize(self.episode_art.maximumWidth(), self.episode_art.maximumHeight())
-                if target.width() <= 0 or target.height() <= 0:
-                    target = QSize(120, 120)
-                self.episode_art.setPixmap(
-                    pix.scaled(target, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
-                )
-            else:
-                self.episode_art.clear()
+        # Artwork with fallback to podcast default icon
+        pix = None
+        if ep.artwork_url:
+            pix = self._fetch_pixmap(ep.artwork_url)
+        if pix is None and self._default_art_url:
+            pix = self._fetch_pixmap(self._default_art_url)
+        if pix is not None:
+            target = QSize(self.episode_art.maximumWidth(), self.episode_art.maximumHeight())
+            if target.width() <= 0 or target.height() <= 0:
+                target = QSize(120, 120)
+            self.episode_art.setPixmap(
+                pix.scaled(target, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
+            )
         else:
             self.episode_art.clear()
 
