@@ -264,12 +264,14 @@ class SubscriptionListView(QWidget):
             QMessageBox.StandardButton.No,
         )
         if ans2 == QMessageBox.StandardButton.Yes:
-            pod_dir = self.service.cfg.root_dir / sub.name
+            # Delete the canonical per-podcast directory resolved via FeedsMetaService
             try:
+                pod_dir = self.feeds_meta.podcast_dir(sub.name, sub.feed_url)
                 import shutil
 
-                shutil.rmtree(pod_dir)
+                shutil.rmtree(pod_dir, ignore_errors=True)
             except Exception:
+                # Best-effort cleanup; ignore failures to keep UI responsive
                 pass
         self.refresh()
 
