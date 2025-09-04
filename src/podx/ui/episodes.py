@@ -405,8 +405,10 @@ class PodcastView(QWidget):
         self.episode_header = QWidget()
         eh_layout = QHBoxLayout(self.episode_header)
         self.episode_art = QLabel("")
-        self.episode_art.setMinimumSize(64, 64)
+        # Keep icon fully visible: fix width/height to avoid horizontal cropping
+        self.episode_art.setMinimumSize(120, 120)
         self.episode_art.setMaximumSize(120, 120)
+        self.episode_art.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
         self.episode_art.setScaledContents(False)
         self.episode_art.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
         eh_right = QVBoxLayout()
@@ -425,7 +427,6 @@ class PodcastView(QWidget):
         eh_right.addStretch(1)
         eh_layout.addWidget(self.episode_art)
         eh_layout.addLayout(eh_right)
-        right_layout.addWidget(self.episode_header)
 
         # Tabs container
         self.tabs = QTabWidget()
@@ -462,6 +463,24 @@ class PodcastView(QWidget):
         s_layout.addWidget(self.summary_view)
         self.tabs.addTab(summary_tab, "Summary")
 
+        # Wrap episode header in a scroll area to keep header compact while
+        # allowing long descriptions to be scrollable.
+        self.episode_header_scroll = QScrollArea()
+        self.episode_header_scroll.setWidgetResizable(True)
+        self.episode_header_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.episode_header_scroll.setWidget(self.episode_header)
+        # Tall enough to show full icon height; text can scroll
+        try:
+            self.episode_header_scroll.setFixedHeight(self.episode_art.maximumHeight() + 20)
+        except Exception:
+            pass
+        # Ensure the icon sits at the top within the header
+        try:
+            eh_layout.setAlignment(self.episode_art, Qt.AlignmentFlag.AlignTop)
+        except Exception:
+            pass
+
+        right_layout.addWidget(self.episode_header_scroll)
         right_layout.addWidget(self.tabs)
         splitter.addWidget(right_panel)
         splitter.setStretchFactor(0, 2)
