@@ -50,7 +50,8 @@ class JobsService:
     """Queue and run background jobs (transcribe, summarize) with progress.
 
     UI code can subscribe to updates via ``add_listener``; listeners are called
-    on the worker thread, so UIs should marshal updates to the main thread.
+    on the worker thread, so UIs should marshal updates to the main thread
+    (see ``docs/ui-threading.md``).
     """
 
     def __init__(self, ingestion: IngestionService) -> None:

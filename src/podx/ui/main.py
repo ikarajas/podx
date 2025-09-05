@@ -4,7 +4,7 @@ from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 
-from PyQt6.QtCore import Qt, QAbstractListModel, QModelIndex, QSize, QRect, QTimer
+from PyQt6.QtCore import Qt, QAbstractListModel, QModelIndex, QSize, QRect, QMetaObject
 from PyQt6.QtGui import QIcon, QPixmap, QPainter, QMouseEvent, QPalette, QColor, QAction
 from PyQt6.QtWidgets import (
     QApplication,
@@ -696,7 +696,9 @@ class JobsView(QWidget):
             if cur is not None and cur.data(Qt.ItemDataRole.UserRole) == job.id:
                 self._populate_details(job)
         try:
-            QTimer.singleShot(0, apply)
+            QMetaObject.invokeMethod(
+                self.list, apply, Qt.ConnectionType.QueuedConnection
+            )
         except Exception:
             apply()
 

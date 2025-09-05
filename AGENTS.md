@@ -58,6 +58,14 @@ Tip: If your workflow prefers keeping UI tests optional, add a `@pytest.mark.ui`
 marker and run them in a dedicated job; otherwise, keep the current “always run”
 setup for stronger regression coverage.
 
+## Qt Threading Guidelines
+
+- Services may invoke callbacks from worker threads. Qt widgets must only be
+  touched on the GUI thread.
+- In views, marshal background updates with signals or `QMetaObject.invokeMethod`
+  using `Qt.QueuedConnection`; `QTimer.singleShot` without a QObject target is
+  unreliable. See `docs/ui-threading.md` for examples.
+
 ## Documentation Strategy
 
 Keep high-level guidance in the top-level README and deeper, evolving details in docs/*. The goal is to make it easy to understand where new code belongs, how to extend features, and why notable choices were made.
