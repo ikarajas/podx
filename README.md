@@ -119,6 +119,13 @@ subscription key to:
 - Keep transcript and summary timestamps independent so regeneration of one
   does not clobber the other.
 
+### Ingestion pipeline and progress
+
+See `docs/ingestion-pipeline.md` for a walkthrough of the ingestion steps and
+progress strategies. It also outlines an optional child‑process design to make
+progress updates robust for runners that do not yield frequently (e.g., some
+MLX configurations).
+
 ## Project Layout
 
 - `pyproject.toml`: Package metadata and console script entrypoint

@@ -76,13 +76,14 @@ Recommended layout
 - docs/: Feature- and subsystem-specific documents. Examples:
   - docs/feeds-metadata.md — subscription keys, cache layout, TTL/retention policy.
   - docs/ui-performance.md — item view performance checklist (uniform sizes, batching, async thumbnails, caching).
-  - docs/ingestion-pipeline.md — ingestion steps, file layout, error handling and locking.
+  - docs/ingestion-pipeline.md — ingestion steps, file layout, error handling/locking, and a design note on child‑process transcription for reliable progress.
 - Architecture Decision Records (ADRs) — optional but encouraged for notable decisions: short records under `docs/adr/NNN-title.md` for choices that affect future work (e.g., key format `slug--shortid`, retention policy defaults, paging strategy). Keep them concise and link them from relevant docs.
 
 When to document
 - Any change that affects public behavior, storage formats, paths, or cross-cutting architecture (e.g., how services interact) must update or add docs alongside code.
 - UI/UX-affecting changes should note user-visible behavior and config knobs.
 - Performance-impacting patterns (e.g., model batching, async fetch) belong in docs/ui-performance.md.
+  Consider adding or updating docs/ingestion-pipeline.md when the ingestion or progress strategy changes (e.g., adopting a child‑process runner).
 
 PR checklist (treat as a mental checklist)
 - Code follows layering rules (services hold logic; UI stays thin; no prints in services).
