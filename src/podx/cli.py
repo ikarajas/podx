@@ -8,7 +8,7 @@ from podx.services.progress import ConsoleProgressReporter
 
 from . import __version__
 from .app import get_config
-from .services import IngestionService
+from .services import IngestionService, SummarizationService
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -83,6 +83,68 @@ def build_parser() -> argparse.ArgumentParser:
         return ui_main()
 
     ui_p.set_defaults(func=_ui)
+
+    # summarize: Summarize a transcript via ChatGPT
+    sum_p = subparsers.add_parser("summarize", help="Summarize a transcript using ChatGPT (model configurable)")
+    sum_p.add_argument("--file", "-f", help="Path to transcript text file ('-' for stdin)", required=True)
+    sum_p.add_argument("--out", "-o", help="Write summary to this file (default: stdout)")
+    sum_p.add_argument("--style", choices=["bullets", "abstract", "chapters", "notes"], default=None, help="Summary style")
+    sum_p.add_argument("--language", "-l", default="en", help="Output language (e.g., en, es)")
+    sum_p.add_argument("--model", "-m", default=None, help="Override model (default from config)")
+    sum_p.add_argument("--single", action="store_true", help="Force single-pass summarization (no chunking)")
+    sum_p.add_argument("--chunk-chars", type=int, default=None, help="Approx chars per chunk (override config)")
+    sum_p.add_argument("--overlap-chars", type=int, default=None, help="Chars of overlap between chunks")
+    sum_p.add_argument("--max-output-tokens", type=int, default=None, help="Max tokens for each response")
+
+    def _summarize(args: argparse.Namespace) -> int:
+        cfg = get_config()
+        service = SummarizationService(cfg)
+
+        # Read input
+        if args.file == "-":
+            import sys
+            data = sys.stdin.read()
+            src_desc = "stdin"
+        else:
+            p = Path(args.file).expanduser().resolve()
+            if not p.exists():
+                print("Transcript file not found")
+                return 1
+            data = p.read_text(encoding="utf-8", errors="ignore")
+            src_desc = str(p)
+
+        from podx.services.summarize import SummarizeSpec, SummarizationError
+
+        spec = SummarizeSpec(
+            style=args.style or cfg.summarization.default_style,
+            language=args.language,
+            model=args.model or cfg.llm.model,
+            max_output_tokens=args.max_output_tokens or cfg.llm.max_output_tokens,
+            chunk_chars=args.chunk_chars or cfg.summarization.chunk_chars,
+            overlap_chars=args.overlap_chars or cfg.summarization.overlap_chars,
+            strategy="single" if args.single else cfg.summarization.strategy,
+        )
+
+        try:
+            print(f"Summarizing ({spec.style}) from {src_desc} using model '{spec.model}'…")
+            summary = service.summarize_text(data, spec)
+        except SummarizationError as exc:
+            print(str(exc))
+            return 1
+        except Exception as exc:
+            print(f"Summarization failed: {exc}")
+            return 1
+
+        if args.out:
+            out_path = Path(args.out).expanduser().resolve()
+            out_path.parent.mkdir(parents=True, exist_ok=True)
+            out_path.write_text(summary)
+            print(f"Summary written to: {out_path}")
+        else:
+            print(summary)
+        return 0
+
+    sum_p.set_defaults(func=_summarize)
 
     # Default action: show help when no subcommands/args are provided
     parser.set_defaults(func=lambda _args: parser.print_help())

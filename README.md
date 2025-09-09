@@ -13,7 +13,7 @@ pip install -e .
 
 ## CLI Usage
 
-`podx` exposes three sub‑commands:
+`podx` exposes several sub‑commands:
 
 * **Transcribe an episode**
 
@@ -32,6 +32,18 @@ pip install -e .
   ```bash
   podx ui
   ```
+
+* **Summarize a transcript (ChatGPT)**
+
+  ```bash
+  # From a file
+  podx summarize --file transcript.txt --style bullets --model gpt-4o-mini
+
+  # From stdin
+  cat transcript.txt | podx summarize -f - --style abstract > summary.md
+  ```
+  
+  The model is configurable via config or `--model`. Set `OPENAI_API_KEY` in your environment.
 
 Run `podx --help` or `podx <command> --help` for full options.  The tool can
 also be invoked as a module: `python -m podx`.
@@ -59,6 +71,31 @@ whisper:
 ```
 
 Note: Both engines require FFmpeg to be installed and available on `PATH`.
+
+### LLM configuration (summarization)
+
+Summarization uses OpenAI by default; configure in your `config.yaml`:
+
+```yaml
+llm:
+  provider: openai
+  model: gpt-4o-mini
+  timeout_sec: 60
+  max_output_tokens: 1024
+summarization:
+  default_style: bullets   # bullets|abstract|chapters|notes
+  chunk_chars: 12000       # character-based chunking (no tokenizer required)
+  overlap_chars: 400
+  strategy: map_reduce     # or single, refine
+```
+
+Secrets are not written to disk; provide your key via `OPENAI_API_KEY`.
+
+Why this design?
+- Key in env (not config): avoids storing secrets on disk, fits CI/containers, and matches 12‑factor practices.
+- `openai` not a hard dependency: keeps the base install light and usable offline; opt in with `pip install openai` when needed.
+
+See ADR 001 for details: `docs/adr/001-llm-key-and-optional-openai.md`.
 
 ### Performance: Faster-Whisper (Intel-friendly)
 

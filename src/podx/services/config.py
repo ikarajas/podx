@@ -43,12 +43,44 @@ class UiSettings:
 
 
 @dataclass
+class LlmSettings:
+    """Settings for Large Language Model usage (summarisation, etc.).
+
+    Notes
+    - ``provider`` is currently limited to ``"openai"`` but kept configurable
+      so future providers can be added without changing the public Config API.
+    - API keys are intentionally not persisted; use environment variables
+      (e.g., ``OPENAI_API_KEY``) to avoid writing secrets to disk.
+    """
+
+    provider: str = "openai"
+    model: str = "gpt-4o-mini"
+    timeout_sec: int = 60
+    max_output_tokens: int = 1024
+
+
+@dataclass
+class SummarizationSettings:
+    """Defaults controlling summarisation behaviour.
+
+    These are conservative, character-based limits that work without a tokenizer.
+    """
+
+    default_style: str = "bullets"  # one of: bullets, abstract, chapters, notes
+    chunk_chars: int = 12000
+    overlap_chars: int = 400
+    strategy: str = "map_reduce"  # or: refine, single
+
+
+@dataclass
 class Config:
     root_dir: Path
     whisper: WhisperSettings
     logging: LoggingSettings
     save_audio_copy: bool = False
     ui: UiSettings = field(default_factory=UiSettings)
+    llm: LlmSettings = field(default_factory=LlmSettings)
+    summarization: SummarizationSettings = field(default_factory=SummarizationSettings)
 
 
 def load_config(path: Path | None = None) -> Config:
@@ -67,6 +99,8 @@ def load_config(path: Path | None = None) -> Config:
     whisper = data.get("whisper", {})
     logging = data.get("logging", {})
     ui = data.get("ui", {})
+    llm = data.get("llm", {})
+    summarization = data.get("summarization", {})
     # Choose sensible per-platform defaults if not specified
     is_mlx_platform = sys.platform == "darwin" and platform.machine().lower() in ("arm64", "aarch64")
     default_runner = "mlx" if is_mlx_platform else "whisper"
@@ -92,6 +126,18 @@ def load_config(path: Path | None = None) -> Config:
             episodes_vertical_splitter=list(ui.get("episodes_vertical_splitter", [])),
             episodes_horizontal_splitter=list(ui.get("episodes_horizontal_splitter", [])),
         ),
+        llm=LlmSettings(
+            provider=str(llm.get("provider", "openai")),
+            model=str(llm.get("model", "gpt-4o-mini")),
+            timeout_sec=int(llm.get("timeout_sec", 60)),
+            max_output_tokens=int(llm.get("max_output_tokens", 1024)),
+        ),
+        summarization=SummarizationSettings(
+            default_style=str(summarization.get("default_style", "bullets")),
+            chunk_chars=int(summarization.get("chunk_chars", 12000)),
+            overlap_chars=int(summarization.get("overlap_chars", 400)),
+            strategy=str(summarization.get("strategy", "map_reduce")),
+        ),
     )
 
 
@@ -113,6 +159,14 @@ def save_config(cfg: Config, path: Path | None = None) -> None:
         "logging": asdict(cfg.logging),
         "save_audio_copy": cfg.save_audio_copy,
         "ui": asdict(cfg.ui),
+        "llm": {
+            # Do not persist secrets; only safe, non-secret fields.
+            "provider": cfg.llm.provider,
+            "model": cfg.llm.model,
+            "timeout_sec": cfg.llm.timeout_sec,
+            "max_output_tokens": cfg.llm.max_output_tokens,
+        },
+        "summarization": asdict(cfg.summarization),
     }
     text = yaml.safe_dump(data, sort_keys=False) if yaml else json.dumps(data, indent=2)
     path.write_text(text)

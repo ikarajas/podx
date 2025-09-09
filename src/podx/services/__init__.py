@@ -15,6 +15,7 @@ __all__ = [
     "PodcastSearchResult",
     "Subscription",
     "IngestionService",
+    "SummarizationService",
     "DirectoryService",
     "DirectoryClient",
     "ITunesDirectoryClient",
@@ -40,5 +41,8 @@ def __getattr__(name: str):  # pragma: no cover - simple forwarding
         return getattr(module, name)
     if name in {"EpisodesIndexService"}:
         module = import_module(".episodes_index", __name__)
+        return getattr(module, name)
+    if name in {"SummarizationService"}:
+        module = import_module(".summarize", __name__)
         return getattr(module, name)
     raise AttributeError(f"module {__name__} has no attribute {name}")
