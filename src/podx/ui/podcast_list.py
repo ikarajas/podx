@@ -248,8 +248,9 @@ class PodcastListView(QWidget):
         self.list = QListView()
         self.model = _PodcastListModel(feeds_meta=self._feeds_meta)
         self.list.setModel(self.model)
-        # Icons default: only an 'open' action if none provided
-        if not actions:
+        # Icons default: only an 'open' action if actions is None.
+        # Passing an empty list disables action icons entirely.
+        if actions is None:
             style = QWidget().style()
             actions = [ListAction("open", style.standardIcon(QStyle.StandardPixmap.SP_DirOpenIcon), "Open")]
         self.delegate = _PodcastDelegate(actions, self.list)
@@ -347,4 +348,3 @@ __all__ = [
     "ListAction",
     "PodcastListView",
 ]
-

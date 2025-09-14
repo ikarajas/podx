@@ -51,8 +51,9 @@ class SearchView(QWidget):
 
         # Split view: results list (left) and details (right)
         splitter = QSplitter()
-        # Results list (left): generic podcast list with a Subscribe action
-        actions = [ListAction("subscribe", self.style().standardIcon(QStyle.StandardPixmap.SP_DialogApplyButton), "Subscribe")]
+        # Results list (left): generic podcast list without inline actions
+        # (we keep the Subscribe button in the detail panel instead)
+        actions: list[ListAction] = []
         self.results_list = PodcastListView(
             feeds_meta=None,  # avoid extra RSS refresh during search
             rss=None,
@@ -108,12 +109,22 @@ class SearchView(QWidget):
         if not term:
             return
         podcasts = list(self.directory.search_podcasts(term))
+        def _desc_for(p: PodcastSearchResult) -> str | None:
+            parts: list[str] = []
+            pub = getattr(p, "publisher", None)
+            if pub:
+                parts.append(pub)
+            genres = getattr(p, "genres", None) or []
+            if genres:
+                parts.append(", ".join(genres))
+            return " \u2022 ".join(parts) if parts else None
+
         items = [
             PodcastListItem(
                 name=p.name,
                 feed_url=p.feed_url,
                 icon_url=getattr(p, "icon_url", None),
-                description=None,
+                description=_desc_for(p),
                 source=p,
             )
             for p in podcasts
