@@ -34,7 +34,7 @@ from PyQt6.QtWidgets import (
 )
 
 from ..models import FeedEpisode
-from .utils import clean_html
+from .utils import clean_html, format_episode_meta
 from ..services import RssService
 from ..services.feeds_meta import FeedsMetaService
 from ..services.episodes_index import EpisodesIndexService
@@ -170,16 +170,10 @@ class EpisodeDelegate(QStyledItemDelegate):
         y = desc_rect.bottom()
 
         # Meta line
-        meta_parts: list[str] = []
-        date = index.data(EpisodeListModel.DateRole)
-        if date:
-            meta_parts.append(date.strftime("%b %d, %Y"))
-        duration = index.data(EpisodeListModel.DurationRole)
-        if duration is not None:
-            minutes = duration // 60
-            seconds = duration % 60
-            meta_parts.append(f"{minutes:d}:{seconds:02d}")
-        meta = " \u2022 ".join(meta_parts)
+        meta = format_episode_meta(
+            index.data(EpisodeListModel.DateRole),
+            index.data(EpisodeListModel.DurationRole),
+        )
         meta_font = QFont(option.font)
         meta_font.setPointSize(option.font.pointSize() - 2)
         painter.setFont(meta_font)
@@ -717,14 +711,9 @@ class PodcastView(QWidget):
         ep = self.model._episodes[row]
         self.episode_title.setText(ep.title or "")
         # Meta: date + duration
-        meta_parts: list[str] = []
-        if ep.published:
-            meta_parts.append(ep.published.strftime("%b %d, %Y"))
-        if ep.duration is not None:
-            minutes = ep.duration // 60
-            seconds = ep.duration % 60
-            meta_parts.append(f"{minutes:d}:{seconds:02d}")
-        self.episode_meta.setText(" \u2022 ".join(meta_parts))
+        self.episode_meta.setText(
+            format_episode_meta(ep.published, ep.duration)
+        )
         self.episode_desc.setText(clean_html(ep.description or ""))
         # Artwork
         # Artwork with fallback to podcast default icon
