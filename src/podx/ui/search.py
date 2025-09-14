@@ -18,6 +18,8 @@ from .utils import fetch_pixmap
 from podx.services.directory import DirectoryService
 from podx.services.subscriptions import SubscriptionService
 from .podcast_list import PodcastListView, PodcastListItem, ListAction
+from podx.services import RssService
+from .podcast_preview import PodcastPreviewPane
 
 
 class SearchView(QWidget):
@@ -34,6 +36,7 @@ class SearchView(QWidget):
         self.directory = directory
         self.subscriptions = subscriptions
         self.on_subscribed = on_subscribed
+        self._rss = RssService()
         layout = QVBoxLayout(self)
 
         # Search bar row with button on the right
@@ -64,24 +67,12 @@ class SearchView(QWidget):
         )
         splitter.addWidget(self.results_list)
 
-        # Detail panel
-        self.detail_panel = QWidget()
-        detail_layout = QVBoxLayout(self.detail_panel)
-        self.detail_title = QLabel("")
-        self.detail_title.setStyleSheet("font-weight: bold; font-size: 16px;")
-        self.detail_icon = QLabel("")
-        self.detail_icon.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
-        self.detail_publisher = QLabel("")
-        # Order: title, icon, publisher
-        detail_layout.addWidget(self.detail_title)
-        detail_layout.addWidget(self.detail_icon)
-        detail_layout.addWidget(self.detail_publisher)
-        detail_layout.addStretch(1)
-        # Subscribe button at the bottom
-        self.subscribe_button = QPushButton("Subscribe")
+        # Right-hand preview pane: header + episodes list
+        self.preview = PodcastPreviewPane(self._rss)
+        splitter.addWidget(self.preview)
+        # Expose subscribe button for existing interactions/tests
+        self.subscribe_button = self.preview.subscribe_button
         self.subscribe_button.clicked.connect(self.subscribe_current)
-        detail_layout.addWidget(self.subscribe_button)
-        splitter.addWidget(self.detail_panel)
         splitter.setStretchFactor(0, 1)
         splitter.setStretchFactor(1, 2)
         layout.addWidget(splitter, 1)
@@ -164,33 +155,17 @@ class SearchView(QWidget):
 
     def _on_selection_changed_index(self, current: QModelIndex, _prev: QModelIndex) -> None:
         if not current.isValid():
-            self._clear_detail()
+            self.preview.clear()
             return
         podcast = self.results_list.model.data(current, Qt.ItemDataRole.UserRole)
         if not isinstance(podcast, PodcastSearchResult):
-            self._clear_detail()
+            self.preview.clear()
             return
-        # Title
-        self.detail_title.setText(podcast.name)
-        # Publisher
-        pub = getattr(podcast, "publisher", None)
-        self.detail_publisher.setText(f"Publisher: {pub}" if pub else "")
-        # Icon (download best-effort)
-        icon_url = getattr(podcast, "icon_url", None)
-        if icon_url:
-            pix = fetch_pixmap(icon_url)
-            if pix is not None:
-                # scale to a reasonable size preserving aspect ratio
-                self.detail_icon.setPixmap(pix.scaledToWidth(128, Qt.TransformationMode.SmoothTransformation))
-            else:
-                self.detail_icon.clear()
-        else:
-            self.detail_icon.clear()
+        self.preview.load_result(podcast)
 
     def _clear_detail(self) -> None:
-        self.detail_title.clear()
-        self.detail_icon.clear()
-        self.detail_publisher.clear()
+        # Backward compat no-op; preview.clear handles it now
+        self.preview.clear()
 
     def _on_list_action(self, action_id: str, src, _index: QModelIndex) -> None:
         if action_id == "subscribe" and isinstance(src, PodcastSearchResult):

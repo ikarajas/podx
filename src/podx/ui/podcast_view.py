@@ -20,6 +20,7 @@ from PyQt6.QtWidgets import (
 
 from .episodes_model import EpisodeListModel
 from .episodes_delegate import EpisodeDelegate
+from .episodes_pane import PodcastEpisodeList
 from .utils import clean_html, format_episode_meta, fetch_pixmap
 from ..services import RssService
 from ..services.feeds_meta import FeedsMetaService
@@ -99,21 +100,17 @@ class PodcastView(QWidget):
         # Left panel: podcast header + list
         left_panel = QWidget()
         left_layout = QVBoxLayout(left_panel)
-        self.list = QListView()
-        self.model = EpisodeListModel()
-        self.list.setModel(self.model)
-        self.delegate = EpisodeDelegate(self.list, show_action_icon=self._enable_transcription)
-        self.list.setItemDelegate(self.delegate)
+        # Episodes list (wrapped for reuse)
+        self._episodes_pane = PodcastEpisodeList(show_action_icon=self._enable_transcription)
+        self.list = self._episodes_pane.list
+        self.model = self._episodes_pane.model
+        self.delegate = self._episodes_pane.delegate
         # Delegate click triggers a normal transcription (no force)
         if self._enable_transcription:
             self.delegate.transcribeRequested.connect(lambda idx: self._on_transcribe(idx, force=False))
             # Connect result signal only when we support transcription
             self.transcribeFinished.connect(self._on_transcribe_result)
-        # Uniform sizes and batched layout
-        self.list.setUniformItemSizes(True)
-        self.list.setLayoutMode(QListView.LayoutMode.Batched)
-        self.list.setBatchSize(256)
-        left_layout.addWidget(self.list, 1)
+        left_layout.addWidget(self._episodes_pane, 1)
         splitter.addWidget(left_panel)
 
         # Right panel: episode header + tabs (Transcript, Summary)
