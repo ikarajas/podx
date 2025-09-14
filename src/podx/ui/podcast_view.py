@@ -287,13 +287,7 @@ class PodcastView(QWidget):
     def _on_transcribe_result(self, row: int, ok: bool) -> None:
         if not (0 <= row < self.model.rowCount()):
             return
-        if ok:
-            ep = self.model.episode_at(row)
-            if ep is not None:
-                ep.transcribed = True
-            self.model.setStatus(row, "transcribed")
-        else:
-            self.model.setStatus(row, "failed")
+        self.model.mark_transcribed(row, ok)
         # Repaint only the affected row
         idx = self.model.index(row)
         rect = self.list.visualRect(idx)
@@ -313,16 +307,13 @@ class PodcastView(QWidget):
             if job.status == "running":
                 self.model.setStatus(row, "in_progress")
             elif job.status == "succeeded":
-                ep = self.model.episode_at(row)
-                if ep is not None:
-                    ep.transcribed = True
-                self.model.setStatus(row, "transcribed")
+                self.model.mark_transcribed(row, True)
                 cur = self.list.currentIndex()
                 if cur.isValid() and cur.row() == row:
                     self._update_transcript_for_selection()
                     self._update_summary_for_selection()
             elif job.status == "failed":
-                self.model.setStatus(row, "failed")
+                self.model.mark_transcribed(row, False)
                 cur = self.list.currentIndex()
                 if cur.isValid() and cur.row() == row:
                     self._update_transcript_for_selection()
@@ -526,4 +517,3 @@ class PodcastView(QWidget):
 
 
 __all__ = ["PodcastView"]
-

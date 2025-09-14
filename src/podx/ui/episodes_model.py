@@ -85,6 +85,16 @@ class EpisodeListModel(QAbstractListModel):
             return self._episodes[row]
         return None
 
+    def mark_transcribed(self, row: int, ok: bool) -> None:
+        """Convenience: set episode.transcribed and status atomically."""
+        ep = self.episode_at(row)
+        if ep is None:
+            return
+        if ok:
+            ep.transcribed = True
+            self.setStatus(row, "transcribed")
+        else:
+            self.setStatus(row, "failed")
+
 
 __all__ = ["EpisodeListModel"]
-
