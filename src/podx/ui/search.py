@@ -1,23 +1,23 @@
 from __future__ import annotations
 
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import Qt, QModelIndex
 from PyQt6.QtWidgets import (
     QLabel,
     QLineEdit,
-    QListWidget,
-    QListWidgetItem,
     QPushButton,
     QHBoxLayout,
     QSplitter,
     QSizePolicy,
     QVBoxLayout,
     QWidget,
+    QStyle,
 )
 
 from podx.models import PodcastSearchResult, Subscription
 from .utils import fetch_pixmap
 from podx.services.directory import DirectoryService
 from podx.services.subscriptions import SubscriptionService
+from .podcast_list import PodcastListView, PodcastListItem, ListAction
 
 
 class SearchView(QWidget):
@@ -51,8 +51,17 @@ class SearchView(QWidget):
 
         # Split view: results list (left) and details (right)
         splitter = QSplitter()
-        self.results = QListWidget()
-        splitter.addWidget(self.results)
+        # Results list (left): generic podcast list with a Subscribe action
+        actions = [ListAction("subscribe", self.style().standardIcon(QStyle.StandardPixmap.SP_DialogApplyButton), "Subscribe")]
+        self.results_list = PodcastListView(
+            feeds_meta=None,  # avoid extra RSS refresh during search
+            rss=None,
+            actions=actions,
+            on_open=None,  # no double-click open in search
+            on_action=self._on_list_action,
+            enable_meta_refresh=False,
+        )
+        splitter.addWidget(self.results_list)
 
         # Detail panel
         self.detail_panel = QWidget()
@@ -76,45 +85,80 @@ class SearchView(QWidget):
         splitter.setStretchFactor(1, 2)
         layout.addWidget(splitter, 1)
 
-        # Selection handler for updating detail view
-        self.results.currentItemChanged.connect(self._on_selection_changed)
+        # Selection handler for updating detail view (single click selection)
+        self.results_list.list.selectionModel().currentChanged.connect(self._on_selection_changed_index)
+
+        # Back-compat test adapter: expose a tiny API over the list for tests
+        class _ResultsAdapter:
+            def __init__(self, outer: 'SearchView') -> None:
+                self._outer = outer
+
+            def count(self) -> int:
+                return self._outer.results_list.model.rowCount()
+
+            def setCurrentRow(self, row: int) -> None:
+                if 0 <= row < self._outer.results_list.model.rowCount():
+                    idx = self._outer.results_list.model.index(row)
+                    self._outer.results_list.list.setCurrentIndex(idx)
+
+        self.results = _ResultsAdapter(self)
 
     def perform_search(self) -> None:
         term = self.search_input.text().strip()
-        self.results.clear()
         if not term:
             return
         podcasts = list(self.directory.search_podcasts(term))
-        for podcast in podcasts:
-            item = QListWidgetItem(podcast.name)
-            item.setData(Qt.ItemDataRole.UserRole, podcast)
-            self.results.addItem(item)
-        if self.results.count() > 0:
-            self.results.setCurrentRow(0)
+        items = [
+            PodcastListItem(
+                name=p.name,
+                feed_url=p.feed_url,
+                icon_url=getattr(p, "icon_url", None),
+                description=None,
+                source=p,
+            )
+            for p in podcasts
+        ]
+        self.results_list.set_items(items)
+        if self.results_list.model.rowCount() > 0:
+            # Select first item (single-click selection behavior remains default)
+            idx = self.results_list.model.index(0)
+            self.results_list.list.setCurrentIndex(idx)
 
-    def subscribe_selected(self, item: QListWidgetItem) -> None:
-        # Deprecated: kept for backward compatibility in tests
-        podcast: PodcastSearchResult = item.data(Qt.ItemDataRole.UserRole)
+    def _subscribe_from_result(self, podcast: PodcastSearchResult) -> None:
         sub = Subscription(
             name=podcast.name,
             feed_url=podcast.feed_url,
             icon_url=getattr(podcast, "icon_url", None),
         )
         self.subscriptions.add_subscription(sub)
-        # Notify with the newly subscribed item
         self.on_subscribed(sub)
 
-    def subscribe_current(self) -> None:
-        item = self.results.currentItem()
-        if not item:
+    def subscribe_selected(self, item) -> None:
+        # Backward-compat wrapper: accept QListWidgetItem-like or PodcastSearchResult
+        if hasattr(item, "data"):
+            podcast = item.data(Qt.ItemDataRole.UserRole)
+        else:
+            podcast = item
+        if not isinstance(podcast, PodcastSearchResult):
             return
-        self.subscribe_selected(item)
+        self._subscribe_from_result(podcast)
 
-    def _on_selection_changed(self, current: QListWidgetItem | None, _prev: QListWidgetItem | None) -> None:
-        if current is None:
+    def subscribe_current(self) -> None:
+        idx = self.results_list.list.currentIndex()
+        if not idx.isValid():
+            return
+        podcast = self.results_list.model.data(idx, Qt.ItemDataRole.UserRole)
+        if isinstance(podcast, PodcastSearchResult):
+            self._subscribe_from_result(podcast)
+
+    def _on_selection_changed_index(self, current: QModelIndex, _prev: QModelIndex) -> None:
+        if not current.isValid():
             self._clear_detail()
             return
-        podcast: PodcastSearchResult = current.data(Qt.ItemDataRole.UserRole)
+        podcast = self.results_list.model.data(current, Qt.ItemDataRole.UserRole)
+        if not isinstance(podcast, PodcastSearchResult):
+            self._clear_detail()
+            return
         # Title
         self.detail_title.setText(podcast.name)
         # Publisher
@@ -136,5 +180,9 @@ class SearchView(QWidget):
         self.detail_title.clear()
         self.detail_icon.clear()
         self.detail_publisher.clear()
+
+    def _on_list_action(self, action_id: str, src, _index: QModelIndex) -> None:
+        if action_id == "subscribe" and isinstance(src, PodcastSearchResult):
+            self._subscribe_from_result(src)
 
     # Shared pixmap loader lives in ui.utils.fetch_pixmap
