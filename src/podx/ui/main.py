@@ -1,39 +1,23 @@
 from __future__ import annotations
 
-from pathlib import Path
-from concurrent.futures import ThreadPoolExecutor
-from datetime import datetime
-
-from PyQt6.QtCore import Qt, QAbstractListModel, QModelIndex, QSize, QRect, QMetaObject
-from PyQt6.QtGui import QIcon, QPixmap, QPainter, QMouseEvent, QPalette, QColor, QAction
+from PyQt6.QtCore import Qt, QSize
+from PyQt6.QtGui import QAction
 from PyQt6.QtWidgets import (
     QApplication,
     QLabel,
-    QLineEdit,
-    QListView,
-    QListWidget,
-    QListWidgetItem,
     QMainWindow,
-    QPushButton,
-    QHBoxLayout,
-    QSplitter,
     QSizePolicy,
     QStackedWidget,
-    QStyledItemDelegate,
     QStyle,
-    QStyleOptionViewItem,
-    QMessageBox,
     QVBoxLayout,
     QWidget,
     QToolBar,
     QWidgetAction,
-    QPlainTextEdit,
-    QFormLayout,
 )
 
 from podx.app import get_config
 from podx.services.config import save_config
-from podx.models import PodcastSearchResult, Subscription
+from podx.models import Subscription
 from podx.services.directory import DirectoryService
 from podx.services.subscriptions import SubscriptionService
 from podx.services.feeds_meta import FeedsMetaService
@@ -44,8 +28,7 @@ from podx.ui.episodes import PodcastView
 from .search import SearchView
 from .subscriptions_view import SubscriptionListView
 from .jobs_view import JobsView
-from .utils import clean_html, fetch_pixmap
-from podx.services.jobs import JobsService, Job
+from podx.services.jobs import JobsService
 
 
 

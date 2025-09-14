@@ -1,15 +1,12 @@
 from __future__ import annotations
 
-from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 
 from PyQt6.QtCore import Qt, QAbstractListModel, QModelIndex, QSize, QRect, QMetaObject
-from PyQt6.QtGui import QPixmap, QPainter, QMouseEvent, QPalette, QColor
+from PyQt6.QtGui import QPixmap, QPainter, QMouseEvent, QColor
 from PyQt6.QtWidgets import (
     QListView,
-    QListWidget,
-    QListWidgetItem,
     QMessageBox,
     QVBoxLayout,
     QWidget,
@@ -299,4 +296,3 @@ class SubscriptionListView(QWidget):
 
 
 __all__ = ["SubscriptionListView"]
-
