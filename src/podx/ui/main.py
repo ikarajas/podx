@@ -42,7 +42,7 @@ from podx.services.episodes_index import EpisodesIndexService
 from podx.services.ingestion import IngestionService
 from podx.ui.episodes import PodcastView
 from .search import SearchView
-from .utils import clean_html
+from .utils import clean_html, fetch_pixmap
 from podx.services.jobs import JobsService, Job
 
 
@@ -184,19 +184,8 @@ class _SubscriptionDelegate(QStyledItemDelegate):
     def _pix(self, url: str) -> QPixmap | None:
         if url in self._pix_cache:
             return self._pix_cache[url]
-        p = QPixmap()
-        try:
-            if Path(url).exists():
-                p.load(url)
-            elif url.startswith("http"):
-                from urllib.request import urlopen
-
-                with urlopen(url) as resp:
-                    data = resp.read()
-                p.loadFromData(data)
-        except Exception:
-            return None
-        if not p.isNull():
+        p = fetch_pixmap(url)
+        if p and not p.isNull():
             scaled = p.scaled(
                 self._thumb,
                 self._thumb,

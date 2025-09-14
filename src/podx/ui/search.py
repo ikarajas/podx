@@ -16,6 +16,7 @@ from PyQt6.QtWidgets import (
 )
 
 from podx.models import PodcastSearchResult, Subscription
+from .utils import fetch_pixmap
 from podx.services.directory import DirectoryService
 from podx.services.subscriptions import SubscriptionService
 
@@ -123,7 +124,7 @@ class SearchView(QWidget):
         # Icon (download best-effort)
         icon_url = getattr(podcast, "icon_url", None)
         if icon_url:
-            pix = self._fetch_pixmap(icon_url)
+            pix = fetch_pixmap(icon_url)
             if pix is not None:
                 # scale to a reasonable size preserving aspect ratio
                 self.detail_icon.setPixmap(pix.scaledToWidth(128, Qt.TransformationMode.SmoothTransformation))
@@ -137,16 +138,4 @@ class SearchView(QWidget):
         self.detail_icon.clear()
         self.detail_publisher.clear()
 
-    def _fetch_pixmap(self, url: str) -> QPixmap | None:
-        try:
-            from urllib.request import urlopen
-
-            with urlopen(url) as resp:
-                data = resp.read()
-            pix = QPixmap()
-            if pix.loadFromData(data):
-                return pix
-        except Exception:
-            return None
-        return None
-
+    # Shared pixmap loader lives in ui.utils.fetch_pixmap

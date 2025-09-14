@@ -34,7 +34,7 @@ from PyQt6.QtWidgets import (
 )
 
 from ..models import FeedEpisode
-from .utils import clean_html, format_episode_meta
+from .utils import clean_html, format_episode_meta, fetch_pixmap
 from ..services import RssService
 from ..services.feeds_meta import FeedsMetaService
 from ..services.episodes_index import EpisodesIndexService
@@ -569,7 +569,7 @@ class PodcastView(QWidget):
         # Set icon if available
         icon_url = (meta.icon_url if meta else None) or getattr(sub, "icon_url", None)
         if icon_url:
-            pix = self._fetch_pixmap(icon_url)
+            pix = fetch_pixmap(icon_url)
             if pix is not None:
                 # Scale to fit within a square up to 96px, preserving aspect
                 target = QSize(self.podcast_icon.maximumWidth(), self.podcast_icon.maximumHeight())
@@ -629,18 +629,7 @@ class PodcastView(QWidget):
         self._update_transcript_for_selection()
         self._update_summary_for_selection()
 
-    def _fetch_pixmap(self, url: str) -> QPixmap | None:
-        try:
-            from urllib.request import urlopen
-
-            with urlopen(url) as resp:
-                data = resp.read()
-            pix = QPixmap()
-            if pix.loadFromData(data):
-                return pix
-        except Exception:
-            return None
-        return None
+    # Shared pixmap loader lives in ui.utils.fetch_pixmap
 
     def _on_selection_changed(self, current: QModelIndex, _prev: QModelIndex) -> None:
         self._update_episode_header_for_selection()
@@ -742,9 +731,9 @@ class PodcastView(QWidget):
         # Artwork with fallback to podcast default icon
         pix = None
         if ep.artwork_url:
-            pix = self._fetch_pixmap(ep.artwork_url)
+            pix = fetch_pixmap(ep.artwork_url)
         if pix is None and self._default_art_url:
-            pix = self._fetch_pixmap(self._default_art_url)
+            pix = fetch_pixmap(self._default_art_url)
         if pix is not None:
             target = QSize(self.episode_art.maximumWidth(), self.episode_art.maximumHeight())
             if target.width() <= 0 or target.height() <= 0:

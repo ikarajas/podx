@@ -3,6 +3,9 @@ from __future__ import annotations
 import re
 import html
 from datetime import date, datetime
+from pathlib import Path
+
+from PyQt6.QtGui import QPixmap
 
 
 
@@ -56,4 +59,44 @@ def format_episode_meta(dt: datetime | date | None, seconds: int | None) -> str:
     return " \u2022 ".join(parts)
 
 
-__all__ = ["clean_html", "format_duration", "format_episode_meta"]
+__all__ = [
+    "clean_html",
+    "format_duration",
+    "format_episode_meta",
+    "fetch_pixmap",
+]
+
+
+# Simple in-memory cache for fetched pixmaps
+_PIXMAP_CACHE: dict[str, QPixmap] = {}
+
+
+def fetch_pixmap(url: str, *, timeout: float = 5.0) -> QPixmap | None:
+    """Load a QPixmap from a local path or HTTP(S) URL with a small cache.
+
+    Returns None on error. Scales are left to callers.
+    """
+    if not url:
+        return None
+    cached = _PIXMAP_CACHE.get(url)
+    if cached is not None and not cached.isNull():
+        return cached
+    p = QPixmap()
+    try:
+        if url.startswith("file://"):
+            local = url[len("file://") :]
+            p.load(local)
+        elif Path(url).exists():
+            p.load(url)
+        elif url.startswith("http"):
+            from urllib.request import urlopen
+
+            with urlopen(url, timeout=timeout) as resp:
+                data = resp.read()
+            p.loadFromData(data)
+    except Exception:
+        return None
+    if not p.isNull():
+        _PIXMAP_CACHE[url] = p
+        return p
+    return None
