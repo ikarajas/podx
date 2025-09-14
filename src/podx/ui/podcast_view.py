@@ -29,7 +29,12 @@ from ..services.jobs import JobsService, Job
 
 
 class PodcastView(QWidget):
-    """View showing a podcast's episodes."""
+    """View showing a podcast's episodes.
+
+    Shared component: used in the main UI with transcription enabled, and
+    can be embedded in other contexts (e.g., search) in a read-only mode.
+    Toggle behavior via ``enable_transcription``.
+    """
 
     # Signal to update UI from worker thread safely
     transcribeFinished = pyqtSignal(int, bool)
@@ -42,6 +47,8 @@ class PodcastView(QWidget):
         ingestion: IngestionService,
         on_back,
         jobs: JobsService | None = None,
+        *,
+        enable_transcription: bool = True,
     ) -> None:
         super().__init__()
         self.rss = rss
@@ -49,6 +56,7 @@ class PodcastView(QWidget):
         self._episodes_index = episodes_index
         self._ingestion = ingestion
         self._jobs = jobs
+        self._enable_transcription = bool(enable_transcription)
         self._insert_chunk = 200
         self._default_art_url: str | None = None
         # Map job id -> row index for UI updates
@@ -94,12 +102,13 @@ class PodcastView(QWidget):
         self.list = QListView()
         self.model = EpisodeListModel()
         self.list.setModel(self.model)
-        self.delegate = EpisodeDelegate(self.list)
+        self.delegate = EpisodeDelegate(self.list, show_action_icon=self._enable_transcription)
         self.list.setItemDelegate(self.delegate)
         # Delegate click triggers a normal transcription (no force)
-        self.delegate.transcribeRequested.connect(lambda idx: self._on_transcribe(idx, force=False))
-        # Connect result signal
-        self.transcribeFinished.connect(self._on_transcribe_result)
+        if self._enable_transcription:
+            self.delegate.transcribeRequested.connect(lambda idx: self._on_transcribe(idx, force=False))
+            # Connect result signal only when we support transcription
+            self.transcribeFinished.connect(self._on_transcribe_result)
         # Uniform sizes and batched layout
         self.list.setUniformItemSizes(True)
         self.list.setLayoutMode(QListView.LayoutMode.Batched)
@@ -148,7 +157,10 @@ class PodcastView(QWidget):
         self.transcript_header_label = QLabel("")
         self.transcript_regen_btn = QPushButton("Regenerate")
         # Regenerate should force re-transcription even if files exist
-        self.transcript_regen_btn.clicked.connect(lambda: self._on_transcribe(self.list.currentIndex(), force=True))
+        if self._enable_transcription:
+            self.transcript_regen_btn.clicked.connect(lambda: self._on_transcribe(self.list.currentIndex(), force=True))
+        else:
+            self.transcript_regen_btn.hide()
         t_head.addWidget(self.transcript_header_label)
         t_head.addStretch(1)
         t_head.addWidget(self.transcript_regen_btn)
@@ -164,7 +176,10 @@ class PodcastView(QWidget):
         s_head = QHBoxLayout()
         self.summary_header_label = QLabel("")
         self.summary_regen_btn = QPushButton("Regenerate")
-        self.summary_regen_btn.clicked.connect(self._on_generate_summary)
+        if self._enable_transcription:
+            self.summary_regen_btn.clicked.connect(self._on_generate_summary)
+        else:
+            self.summary_regen_btn.hide()
         s_head.addWidget(self.summary_header_label)
         s_head.addStretch(1)
         s_head.addWidget(self.summary_regen_btn)
@@ -193,6 +208,9 @@ class PodcastView(QWidget):
 
         right_layout.addWidget(self.episode_header_scroll)
         right_layout.addWidget(self.tabs)
+        if not self._enable_transcription:
+            # Hide transcript/summary section in read-only browse mode
+            self.tabs.hide()
         splitter.addWidget(right_panel)
         splitter.setStretchFactor(0, 2)
         splitter.setStretchFactor(1, 3)
@@ -217,7 +235,7 @@ class PodcastView(QWidget):
         # Selection change to update episode header and tabs
         self.list.selectionModel().currentChanged.connect(self._on_selection_changed)
         # Listen to JobsService updates if available (UI-thread marshal in handler)
-        if self._jobs is not None:
+        if self._enable_transcription and self._jobs is not None:
             try:
                 self._jobs.add_listener(self._on_job_update)
             except Exception:

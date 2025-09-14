@@ -13,8 +13,11 @@ class EpisodeDelegate(QStyledItemDelegate):
 
     transcribeRequested = pyqtSignal(QModelIndex)
 
-    def __init__(self, parent: QWidget | None = None) -> None:
+    def __init__(self, parent: QWidget | None = None, *, show_action_icon: bool = True) -> None:
         super().__init__(parent)
+        # When False, hides the per-row action/status icon and ignores clicks.
+        # Useful when reusing the episodes list in read-only contexts.
+        self._show_action_icon = show_action_icon
         self._icon_size = 24
         self._margin = 8
         self._item_height = 96
@@ -33,7 +36,8 @@ class EpisodeDelegate(QStyledItemDelegate):
             painter.fillRect(rect, option.palette.highlight())
         # Text area (no per-item artwork for performance)
         text_left = rect.left() + self._margin
-        text_width = rect.width() - (text_left - rect.left()) - self._icon_size - self._margin
+        icon_space = (self._icon_size + self._margin) if self._show_action_icon else 0
+        text_width = rect.width() - (text_left - rect.left()) - icon_space
         y = rect.top() + self._margin
 
         # Title
@@ -81,17 +85,18 @@ class EpisodeDelegate(QStyledItemDelegate):
         painter.drawText(meta_rect, Qt.TextFlag.TextSingleLine, meta)
 
         # Transcribe icon
-        icon_rect = self._icon_rect(option)
-        status = index.data(EpisodeListModel.StatusRole)
-        if status == "transcribed" or index.data(EpisodeListModel.TranscribedRole):
-            icon = self._done_icon
-        elif status == "in_progress":
-            icon = self._progress_icon
-        elif status == "failed":
-            icon = self._failed_icon
-        else:
-            icon = self._transcribe_icon
-        icon.paint(painter, icon_rect)
+        if self._show_action_icon:
+            icon_rect = self._icon_rect(option)
+            status = index.data(EpisodeListModel.StatusRole)
+            if status == "transcribed" or index.data(EpisodeListModel.TranscribedRole):
+                icon = self._done_icon
+            elif status == "in_progress":
+                icon = self._progress_icon
+            elif status == "failed":
+                icon = self._failed_icon
+            else:
+                icon = self._transcribe_icon
+            icon.paint(painter, icon_rect)
 
         painter.restore()
 
@@ -113,7 +118,7 @@ class EpisodeDelegate(QStyledItemDelegate):
         option: QStyleOptionViewItem,
         index: QModelIndex,
     ) -> bool:  # type: ignore[override]
-        if event.type() == QEvent.Type.MouseButtonRelease:
+        if self._show_action_icon and event.type() == QEvent.Type.MouseButtonRelease:
             me: QMouseEvent = event  # type: ignore[assignment]
             if me.button() == Qt.MouseButton.LeftButton and self._icon_rect(option).contains(me.pos()):
                 # Ignore clicks while in progress
@@ -152,4 +157,3 @@ class EpisodeDelegate(QStyledItemDelegate):
 
 
 __all__ = ["EpisodeDelegate"]
-
