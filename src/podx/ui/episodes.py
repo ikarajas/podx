@@ -11,7 +11,7 @@ from PyQt6.QtCore import (
     QSize,
     Qt,
     QEvent,
-    QTimer,
+    QMetaObject,
     pyqtSignal,
 )
 from PyQt6.QtGui import QColor, QFont, QMouseEvent, QPainter, QPixmap, QPalette, QFontMetrics
@@ -113,6 +113,12 @@ class EpisodeListModel(QAbstractListModel):
         except TypeError:
             # Fallback for signatures expecting roles list
             self.dataChanged.emit(idx, idx, [self.StatusRole, self.TranscribedRole])
+
+    def episode_at(self, row: int) -> FeedEpisode | None:
+        """Return episode at row or None if out of range."""
+        if 0 <= row < len(self._episodes):
+            return self._episodes[row]
+        return None
 
 
 class EpisodeDelegate(QStyledItemDelegate):
@@ -474,7 +480,10 @@ class PodcastView(QWidget):
         if not (0 <= row < self.model.rowCount()):
             return
         self.model.setStatus(row, "in_progress")
-        ep = self.model._episodes[row]
+        ep = self.model.episode_at(row)
+        if ep is None:
+            self.model.setStatus(row, "failed")
+            return
         # We need the current subscription context; fetch it by reusing the last loaded key
         # For simplicity, recompute from a minimal Subscription-like object
         # Assume we have the latest 'sub' passed to load stored
@@ -507,7 +516,9 @@ class PodcastView(QWidget):
         if not (0 <= row < self.model.rowCount()):
             return
         if ok:
-            self.model._episodes[row].transcribed = True
+            ep = self.model.episode_at(row)
+            if ep is not None:
+                ep.transcribed = True
             self.model.setStatus(row, "transcribed")
         else:
             self.model.setStatus(row, "failed")
@@ -530,7 +541,9 @@ class PodcastView(QWidget):
             if job.status == "running":
                 self.model.setStatus(row, "in_progress")
             elif job.status == "succeeded":
-                self.model._episodes[row].transcribed = True
+                ep = self.model.episode_at(row)
+                if ep is not None:
+                    ep.transcribed = True
                 self.model.setStatus(row, "transcribed")
                 cur = self.list.currentIndex()
                 if cur.isValid() and cur.row() == row:
@@ -542,7 +555,7 @@ class PodcastView(QWidget):
                 if cur.isValid() and cur.row() == row:
                     self._update_transcript_for_selection()
         try:
-            QTimer.singleShot(0, apply)
+            QMetaObject.invokeMethod(self.list, apply, Qt.ConnectionType.QueuedConnection)
         except Exception:
             apply()
 
@@ -641,11 +654,15 @@ class PodcastView(QWidget):
             self.transcript_view.setPlainText("")
             return
         row = idx.row()
-        if not (0 <= row < len(self.model._episodes)):
+        if not (0 <= row < self.model.rowCount()):
             self.transcript_header_label.setText("")
             self.transcript_view.setPlainText("")
             return
-        ep = self.model._episodes[row]
+        ep = self.model.episode_at(row)
+        if ep is None:
+            self.transcript_header_label.setText("")
+            self.transcript_view.setPlainText("")
+            return
         sub = getattr(self, "_current_sub", None)
         if sub is None:
             self.transcript_header_label.setText("")
@@ -685,7 +702,7 @@ class PodcastView(QWidget):
             self.summary_view.setPlainText("")
             return
         row = idx.row()
-        if not (0 <= row < len(self.model._episodes)):
+        if not (0 <= row < self.model.rowCount()):
             self.summary_header_label.setText("")
             self.summary_view.setPlainText("")
             return
@@ -702,13 +719,19 @@ class PodcastView(QWidget):
             self.episode_art.clear()
             return
         row = idx.row()
-        if not (0 <= row < len(self.model._episodes)):
+        if not (0 <= row < self.model.rowCount()):
             self.episode_title.setText("")
             self.episode_meta.setText("")
             self.episode_desc.setText("")
             self.episode_art.clear()
             return
-        ep = self.model._episodes[row]
+        ep = self.model.episode_at(row)
+        if ep is None:
+            self.episode_title.setText("")
+            self.episode_meta.setText("")
+            self.episode_desc.setText("")
+            self.episode_art.clear()
+            return
         self.episode_title.setText(ep.title or "")
         # Meta: date + duration
         self.episode_meta.setText(
