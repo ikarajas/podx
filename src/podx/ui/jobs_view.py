@@ -31,6 +31,7 @@ from PyQt6.QtGui import (
 )
 from PyQt6.QtWidgets import (
     QAbstractItemView,
+    QApplication,
     QComboBox,
     QHeaderView,
     QLabel,
@@ -38,6 +39,7 @@ from PyQt6.QtWidgets import (
     QPlainTextEdit,
     QPushButton,
     QSplitter,
+    QStyle,
     QStyleOptionViewItem,
     QStyledItemDelegate,
     QTableView,
@@ -316,28 +318,33 @@ class _StatusDelegate(QStyledItemDelegate):
     def paint(self, painter: QPainter, option: QStyleOptionViewItem, index: QModelIndex) -> None:  # noqa: D401
         opt = QStyleOptionViewItem(option)
         self.initStyleOption(opt, index)
-        text = opt.text
-        opt.text = ""
-        super().paint(painter, opt, index)
 
-        painter.save()
-        status = text
+        status = opt.text
         color = _status_color(opt.palette, status.lower())
         metrics = QFontMetrics(opt.font)
-        padding = metrics.height() // 2
-        rect = opt.rect.adjusted(padding, padding // 2, -padding, -padding // 2)
-        chip_width = metrics.horizontalAdvance(status) + padding * 2
-        chip_rect = QRect(rect.left(), rect.top(), chip_width, rect.height())
+        padding_x = metrics.horizontalAdvance(" ")
+        padding_y = max(2, metrics.height() // 4)
+        text_rect = opt.rect.adjusted(padding_x, padding_y, -padding_x, -padding_y)
+        chip_width = metrics.horizontalAdvance(status) + padding_x * 2
+        chip_rect = QRect(text_rect.left(), text_rect.top(), chip_width, text_rect.height())
         radius = chip_rect.height() // 2
+
+        base_opt = QStyleOptionViewItem(opt)
+        base_opt.text = ""
+        base_opt.displayAlignment = Qt.AlignmentFlag.AlignCenter
+        style = opt.widget.style() if opt.widget is not None else QApplication.style()
+        style.drawControl(QStyle.ControlElement.CE_ItemViewItem, base_opt, painter, opt.widget)
+
+        painter.save()
         painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
         bg = QColor(color)
         bg.setAlpha(90)
         painter.setBrush(bg)
         painter.setPen(Qt.PenStyle.NoPen)
         painter.drawRoundedRect(chip_rect, radius, radius)
+
         painter.setPen(color)
-        text_point = QPoint(chip_rect.left() + padding, chip_rect.bottom() - padding)
-        painter.drawText(text_point, status)
+        painter.drawText(chip_rect, int(Qt.AlignmentFlag.AlignCenter), status)
         painter.restore()
 
 
