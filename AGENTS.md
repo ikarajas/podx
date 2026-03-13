@@ -106,6 +106,21 @@ Cross-linking and ownership
 - From code comments or error messages, include pointers to relevant docs when it helps discovery.
 - Services should link to their corresponding docs section at the top of the module when non-obvious (keep brief; avoid redundancy).
 
+## Summarisation
+
+- `SummarizationService` (`services/summarization.py`) orchestrates LLM calls and disk caching.
+- Backends live in `services/llm/` and implement the `SummarizationBackend` ABC (`services/llm/base.py`).
+- Four built-in backends: `gemini.py`, `anthropic_backend.py`, `openai_backend.py`, `ollama.py`.
+- **API keys are always read from environment variables; never from config or disk.**
+  - Gemini: `GEMINI_API_KEY` (or `GOOGLE_API_KEY`)
+  - Anthropic: `ANTHROPIC_API_KEY`
+  - OpenAI: `OPENAI_API_KEY`
+  - Ollama: no key (local server, configure host/model in `config.yaml`)
+- `LlmSettings` and `SummarizationSettings` are in `services/config.py` and loaded from `~/.podx/config.yaml`.
+- `JobsService.enqueue_summarization()` runs summarisation as a background job (same executor as transcription).
+- Results are cached to `{episode_dir}/summary.txt`; the episode index records `summary_path` and `summary_updated_at`.
+- **Adding a new provider:** create `services/llm/myprovider.py` implementing `SummarizationBackend`, add a case in `SummarizationService.get_backend()`, and add an optional extra in `pyproject.toml`.
+
 ## Feed Metadata and Subscription Keys
 
 - UI reads cached channel metadata via `podx.services.feeds_meta.FeedsMetaService`.

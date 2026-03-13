@@ -172,7 +172,7 @@ class PodcastView(QWidget):
         s_layout = QVBoxLayout(summary_tab)
         s_head = QHBoxLayout()
         self.summary_header_label = QLabel("")
-        self.summary_regen_btn = QPushButton("Regenerate")
+        self.summary_regen_btn = QPushButton("Summarise")
         if self._enable_transcription:
             self.summary_regen_btn.clicked.connect(self._on_generate_summary)
         else:
@@ -319,19 +319,29 @@ class PodcastView(QWidget):
             row = self._job_rows.get(job.id)
             if row is None or not (0 <= row < self.model.rowCount()):
                 return
-            if job.status == "running":
-                self.model.setStatus(row, "in_progress")
-            elif job.status == "succeeded":
-                self.model.mark_transcribed(row, True)
-                cur = self.list.currentIndex()
-                if cur.isValid() and cur.row() == row:
-                    self._update_transcript_for_selection()
+            cur = self.list.currentIndex()
+            is_selected = cur.isValid() and cur.row() == row
+            if job.type == "summarize":
+                if job.status == "succeeded" and is_selected:
                     self._update_summary_for_selection()
-            elif job.status == "failed":
-                self.model.mark_transcribed(row, False)
-                cur = self.list.currentIndex()
-                if cur.isValid() and cur.row() == row:
-                    self._update_transcript_for_selection()
+                elif job.status == "failed" and is_selected:
+                    self.summary_header_label.setText("Summary failed")
+                    self.summary_view.setPlainText(
+                        f"Summary generation failed.\n\nReason: {job.message or 'Unknown error'}\n\n"
+                        "Click Regenerate to try again."
+                    )
+            else:
+                if job.status == "running":
+                    self.model.setStatus(row, "in_progress")
+                elif job.status == "succeeded":
+                    self.model.mark_transcribed(row, True)
+                    if is_selected:
+                        self._update_transcript_for_selection()
+                        self._update_summary_for_selection()
+                elif job.status == "failed":
+                    self.model.mark_transcribed(row, False)
+                    if is_selected:
+                        self._update_transcript_for_selection()
         try:
             QMetaObject.invokeMethod(self.list, apply, Qt.ConnectionType.QueuedConnection)
         except Exception:
@@ -466,7 +476,6 @@ class PodcastView(QWidget):
             )
 
     def _update_summary_for_selection(self) -> None:
-        # Placeholder summary population until summaries exist
         idx = self.list.currentIndex()
         if not idx.isValid():
             self.summary_header_label.setText("No episode selected")
@@ -477,9 +486,47 @@ class PodcastView(QWidget):
             self.summary_header_label.setText("")
             self.summary_view.setPlainText("")
             return
-        # No summaries yet; show placeholder
-        self.summary_header_label.setText("No summary yet")
-        self.summary_view.setPlainText("Summary generation not implemented yet.")
+        ep = self.model.episode_at(row)
+        if ep is None:
+            self.summary_header_label.setText("")
+            self.summary_view.setPlainText("")
+            return
+        sub = getattr(self, "_current_sub", None)
+        if sub is None:
+            self.summary_header_label.setText("")
+            self.summary_view.setPlainText("")
+            return
+        key = self._feeds_meta.get_or_create_key(sub.name, sub.feed_url)
+        pub_iso = ep.published.isoformat() if ep.published else None
+        entry = self._episodes_index.find(
+            key,
+            getattr(ep, "guid", None),
+            getattr(ep, "enclosure_url", None),
+            pub_iso,
+            ep.title,
+        )
+        if entry and entry.summary_path:
+            try:
+                text = Path(entry.summary_path).read_text(encoding="utf-8", errors="ignore")
+            except Exception:
+                text = "(Could not read summary file)"
+            ts = entry.summary_updated_at or ""
+            hdr = f"Summarised: {ts}" if ts else "Summarised"
+            self.summary_header_label.setText(hdr)
+            self.summary_view.setPlainText(text)
+            self.summary_regen_btn.setText("Regenerate")
+        elif entry and entry.status == "transcribed":
+            self.summary_header_label.setText("No summary yet")
+            self.summary_view.setPlainText(
+                "No summary yet. Click Summarise to generate one."
+            )
+            self.summary_regen_btn.setText("Summarise")
+        else:
+            self.summary_header_label.setText("No summary yet")
+            self.summary_view.setPlainText(
+                "No transcript yet. Transcribe this episode first, then click Summarise."
+            )
+            self.summary_regen_btn.setText("Summarise")
 
     def _update_episode_header_for_selection(self) -> None:
         idx = self.list.currentIndex()
@@ -527,8 +574,52 @@ class PodcastView(QWidget):
             self.episode_art.clear()
 
     def _on_generate_summary(self) -> None:
-        # Future: hook up summary generation. For now, just refresh placeholder.
-        self._update_summary_for_selection()
+        idx = self.list.currentIndex()
+        if not idx.isValid():
+            return
+        row = idx.row()
+        if not (0 <= row < self.model.rowCount()):
+            return
+        ep = self.model.episode_at(row)
+        if ep is None:
+            return
+        sub = getattr(self, "_current_sub", None)
+        if sub is None or self._jobs is None:
+            return
+        key = self._feeds_meta.get_or_create_key(sub.name, sub.feed_url)
+        pub_iso = ep.published.isoformat() if ep.published else None
+        entry = self._episodes_index.find(
+            key,
+            getattr(ep, "guid", None),
+            getattr(ep, "enclosure_url", None),
+            pub_iso,
+            ep.title,
+        )
+        if entry is None or entry.txt_path is None or entry.episode_dir is None:
+            self.summary_header_label.setText("No transcript")
+            self.summary_view.setPlainText(
+                "Transcribe this episode first before generating a summary."
+            )
+            return
+        try:
+            job_id = self._jobs.enqueue_summarization(
+                podcast=sub.name,
+                title=ep.title,
+                feed_url=sub.feed_url,
+                guid=getattr(ep, "guid", None),
+                enclosure_url=getattr(ep, "enclosure_url", None),
+                published_date=pub_iso,
+                txt_path=Path(entry.txt_path),
+                episode_dir=Path(entry.episode_dir),
+                key=key,
+                force=True,
+            )
+            self._job_rows[job_id] = row
+            self.summary_header_label.setText("Summarising…")
+            self.summary_view.setPlainText("")
+        except Exception as e:
+            self.summary_header_label.setText("Error")
+            self.summary_view.setPlainText(str(e))
 
 
 __all__ = ["PodcastView"]

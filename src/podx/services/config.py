@@ -43,12 +43,28 @@ class UiSettings:
 
 
 @dataclass
+class LlmSettings:
+    provider: str = "gemini"               # gemini | anthropic | openai | ollama
+    model: str | None = None               # None → use per-provider default
+    ollama_host: str = "http://localhost:11434"
+    ollama_model: str = "llama3"
+    timeout_sec: int = 60
+
+
+@dataclass
+class SummarizationSettings:
+    word_count: int = 175                  # target ~150-200 words
+
+
+@dataclass
 class Config:
     root_dir: Path
     whisper: WhisperSettings
     logging: LoggingSettings
     save_audio_copy: bool = False
     ui: UiSettings = field(default_factory=UiSettings)
+    llm: LlmSettings = field(default_factory=LlmSettings)
+    summarization: SummarizationSettings = field(default_factory=SummarizationSettings)
 
 
 def load_config(path: Path | None = None) -> Config:
@@ -74,6 +90,8 @@ def load_config(path: Path | None = None) -> Config:
         "mlx-community/whisper-small-mlx-q4" if is_mlx_platform else "small.en"
     )
 
+    llm = data.get("llm", {})
+    summarization = data.get("summarization", {})
     return Config(
         root_dir=Path(data.get("root_dir", "./podx")),
         whisper=WhisperSettings(
@@ -91,6 +109,16 @@ def load_config(path: Path | None = None) -> Config:
             window_height=int(ui.get("window_height", 800)),
             episodes_vertical_splitter=list(ui.get("episodes_vertical_splitter", [])),
             episodes_horizontal_splitter=list(ui.get("episodes_horizontal_splitter", [])),
+        ),
+        llm=LlmSettings(
+            provider=llm.get("provider", "gemini"),
+            model=llm.get("model") or None,
+            ollama_host=llm.get("ollama_host", "http://localhost:11434"),
+            ollama_model=llm.get("ollama_model", "llama3"),
+            timeout_sec=int(llm.get("timeout_sec", 60)),
+        ),
+        summarization=SummarizationSettings(
+            word_count=int(summarization.get("word_count", 175)),
         ),
     )
 
@@ -113,6 +141,8 @@ def save_config(cfg: Config, path: Path | None = None) -> None:
         "logging": asdict(cfg.logging),
         "save_audio_copy": cfg.save_audio_copy,
         "ui": asdict(cfg.ui),
+        "llm": asdict(cfg.llm),
+        "summarization": asdict(cfg.summarization),
     }
     text = yaml.safe_dump(data, sort_keys=False) if yaml else json.dumps(data, indent=2)
     path.write_text(text)
@@ -123,6 +153,8 @@ __all__ = [
     "WhisperSettings",
     "LoggingSettings",
     "UiSettings",
+    "LlmSettings",
+    "SummarizationSettings",
     "load_config",
     "save_config",
 ]

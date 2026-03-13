@@ -3,13 +3,16 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import Callable, Dict, List, Optional
+from typing import TYPE_CHECKING, Callable, Dict, List, Optional
 from concurrent.futures import ThreadPoolExecutor
 import tempfile
 import uuid
 
 from .progress import ProgressReporter
 from .ingestion import IngestionService
+
+if TYPE_CHECKING:
+    from .summarization import SummarizationService
 
 
 @dataclass
@@ -32,6 +35,7 @@ class Job:
     episode_dir: Optional[str] = None
     vtt_path: Optional[str] = None
     txt_path: Optional[str] = None
+    summary_path: Optional[str] = None
 
 
 class _JobProgressReporter(ProgressReporter):
@@ -54,8 +58,13 @@ class JobsService:
     (see ``docs/ui-threading.md``).
     """
 
-    def __init__(self, ingestion: IngestionService) -> None:
+    def __init__(
+        self,
+        ingestion: IngestionService,
+        summarization: "SummarizationService | None" = None,
+    ) -> None:
         self._ingestion = ingestion
+        self._summarization = summarization
         self._executor = ThreadPoolExecutor(max_workers=1)
         self._jobs: Dict[str, Job] = {}
         self._listeners: List[Callable[[Job], None]] = []
@@ -154,6 +163,68 @@ class JobsService:
                         tmp_path.unlink(missing_ok=True)  # type: ignore[call-arg]
                     except Exception:
                         pass
+                job.finished_at = datetime.now().isoformat()
+                self._notify(job)
+
+        self._executor.submit(run)
+        return job_id
+
+    def enqueue_summarization(
+        self,
+        *,
+        podcast: str,
+        title: str,
+        feed_url: str,
+        guid: Optional[str] = None,
+        enclosure_url: Optional[str] = None,
+        published_date: Optional[str] = None,
+        txt_path: Path,
+        episode_dir: Path,
+        key: str,
+        force: bool = False,
+    ) -> str:
+        """Queue a summarisation job; returns job_id."""
+        if self._summarization is None:
+            raise RuntimeError("No summarisation service configured.")
+        job_id = uuid.uuid4().hex[:12]
+        job = Job(
+            id=job_id,
+            type="summarize",
+            podcast=podcast,
+            title=title,
+            feed_url=feed_url,
+            guid=guid,
+            enclosure_url=enclosure_url,
+            published_date=published_date,
+        )
+        self._jobs[job_id] = job
+        self._notify(job)
+
+        summarization = self._summarization
+
+        def run():
+            job.status = "running"
+            job.started_at = datetime.now().isoformat()
+            self._notify(job)
+            try:
+                result_path = summarization.summarize_episode(
+                    txt_path,
+                    episode_dir,
+                    key=key,
+                    title=title,
+                    published_date=published_date,
+                    guid=guid,
+                    enclosure_url=enclosure_url,
+                    force=force,
+                )
+                job.percent = 100
+                job.status = "succeeded"
+                job.message = "Summarised"
+                job.summary_path = str(result_path)
+            except Exception as e:
+                job.status = "failed"
+                job.message = str(e)
+            finally:
                 job.finished_at = datetime.now().isoformat()
                 self._notify(job)
 

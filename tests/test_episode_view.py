@@ -131,12 +131,12 @@ def test_podcast_view_tabs_show_transcript_and_metadata(tmp_path):
     assert header_text.startswith("Transcribed")
     assert txt_content in view.transcript_view.toPlainText()
 
-    # Summary tab placeholder and regeneration click keeps placeholder
+    # Summary tab: transcribed but no summary yet
     assert view.summary_header_label.text() == "No summary yet"
-    assert view.summary_view.toPlainText() == "Summary generation not implemented yet."
+    assert "Regenerate" in view.summary_view.toPlainText()
+    # Clicking Regenerate without a JobsService configured is a no-op
     view.summary_regen_btn.click()
     assert view.summary_header_label.text() == "No summary yet"
-    assert view.summary_view.toPlainText() == "Summary generation not implemented yet."
 
     app.quit()
 

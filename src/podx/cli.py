@@ -84,20 +84,49 @@ def build_parser() -> argparse.ArgumentParser:
 
     ui_p.set_defaults(func=_ui)
 
-    # summarize: Summarize a transcript via ChatGPT
-    sum_p = subparsers.add_parser("summarize", help="Summarize a transcript using ChatGPT (model configurable)")
+    # summarize: Summarize a transcript via a configured LLM provider
+    sum_p = subparsers.add_parser(
+        "summarize",
+        help="Summarize a transcript using a configured LLM provider (default: Gemini)",
+    )
     sum_p.add_argument("--file", "-f", help="Path to transcript text file ('-' for stdin)", required=True)
     sum_p.add_argument("--out", "-o", help="Write summary to this file (default: stdout)")
-    sum_p.add_argument("--style", choices=["bullets", "abstract", "chapters", "notes"], default=None, help="Summary style")
-    sum_p.add_argument("--language", "-l", default="en", help="Output language (e.g., en, es)")
+    sum_p.add_argument("--provider", "-p", default=None, help="LLM provider: gemini, anthropic, openai, ollama (default from config)")
     sum_p.add_argument("--model", "-m", default=None, help="Override model (default from config)")
-    sum_p.add_argument("--single", action="store_true", help="Force single-pass summarization (no chunking)")
-    sum_p.add_argument("--chunk-chars", type=int, default=None, help="Approx chars per chunk (override config)")
-    sum_p.add_argument("--overlap-chars", type=int, default=None, help="Chars of overlap between chunks")
-    sum_p.add_argument("--max-output-tokens", type=int, default=None, help="Max tokens for each response")
 
-    def _summarize(_args: argparse.Namespace) -> int:
-        print("Summarization not yet implemented.")
+    def _summarize(args: argparse.Namespace) -> int:
+        import sys
+        cfg = get_config()
+        if args.provider:
+            cfg.llm.provider = args.provider
+        if args.model:
+            cfg.llm.model = args.model
+        from podx.services.feeds_meta import FeedsMetaService
+        from podx.services.episodes_index import EpisodesIndexService
+        from podx.services.summarization import SummarizationService
+        feeds_meta = FeedsMetaService(cfg)
+        episodes_index = EpisodesIndexService(feeds_meta)
+        svc = SummarizationService(cfg, episodes_index)
+        if args.file == "-":
+            text = sys.stdin.read()
+        else:
+            try:
+                text = Path(args.file).read_text(encoding="utf-8")
+            except FileNotFoundError:
+                print(f"File not found: {args.file}", file=sys.stderr)
+                return 1
+        try:
+            backend = svc.get_backend()
+            prompt = svc.build_prompt(text)
+            summary = backend.summarize(text, prompt)
+        except (ImportError, RuntimeError, ValueError) as e:
+            print(f"Error: {e}", file=sys.stderr)
+            return 1
+        if args.out:
+            Path(args.out).write_text(summary, encoding="utf-8")
+            print(f"Summary written to {args.out}")
+        else:
+            print(summary)
         return 0
 
     sum_p.set_defaults(func=_summarize)

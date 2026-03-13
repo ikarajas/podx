@@ -44,3 +44,8 @@ faster = [
   # OpenVINO enables Intel GPU acceleration via CTranslate2 when available.
   "openvino; platform_system == 'Windows' or platform_system == 'Linux'"
 ]
+# LLM summarisation providers (install only the one you need)
+gemini = ["google-generativeai"]
+anthropic = ["anthropic"]
+openai = ["openai"]
+# ollama: no extra package needed — uses urllib from the standard library

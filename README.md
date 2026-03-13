@@ -33,17 +33,23 @@ pip install -e .
   podx ui
   ```
 
-* **Summarize a transcript (ChatGPT)**
+* **Summarize a transcript**
 
   ```bash
-  # From a file
-  podx summarize --file transcript.txt --style bullets --model gpt-4o-mini
+  # From a file (uses provider configured in config.yaml, default: Gemini)
+  podx summarize --file transcript.txt
 
-  # From stdin
-  cat transcript.txt | podx summarize -f - --style abstract > summary.md
+  # Override provider or model
+  podx summarize -f transcript.txt --provider anthropic --model claude-3-5-haiku-20241022
+
+  # From stdin, save to file
+  cat transcript.txt | podx summarize -f - --out summary.txt
+
+  # Using local Ollama
+  podx summarize -f transcript.txt --provider ollama
   ```
-  
-  The model is configurable via config or `--model`. Set `OPENAI_API_KEY` in your environment.
+
+  The active provider is configured in `config.yaml`. API keys come from environment variables (never stored on disk).
 
 Run `podx --help` or `podx <command> --help` for full options.  The tool can
 also be invoked as a module: `python -m podx`.
@@ -74,34 +80,87 @@ Note: Both engines require FFmpeg to be installed and available on `PATH`.
 
 ### LLM configuration (summarization)
 
-Summarization uses OpenAI by default; configure in your `config.yaml`:
+Summarization uses a pluggable backend. The default provider is **Google Gemini** (`gemini-2.5-flash`). Supported providers: Gemini, Anthropic, OpenAI, and Ollama (local). Only install the package for the provider you want to use.
+
+API keys are **never** written to disk — they are read from environment variables at runtime.
+
+#### Setting up with Google Gemini
+
+1. **Install the Gemini package:**
+
+   ```bash
+   pip install -e '.[gemini]'
+   ```
+
+2. **Set your API key.** Get one from [Google AI Studio](https://aistudio.google.com/apikey), then export it in your shell (add to `~/.zshrc` or `~/.bashrc` to make it permanent):
+
+   ```bash
+   export GEMINI_API_KEY=your_key_here
+   ```
+
+3. **Add the provider to your config file** (`~/.podx/config.yaml`). Create the file if it does not exist:
+
+   ```yaml
+   root_dir: ~/podx        # where episodes and transcripts are stored
+   llm:
+     provider: gemini
+   ```
+
+   That is all that is required. Gemini defaults to `gemini-2.5-flash`; set `model: gemini-2.5-flash-lite` (cheaper) or `gemini-2.5-pro` (more capable) under `llm:` to override.
+
+4. **Verify it works:**
+
+   ```bash
+   echo "Alice and Bob discussed machine learning over coffee." | podx summarize -f -
+   ```
+
+#### Setting up with Ollama (local, no API key)
+
+Ollama runs models on your own machine — no API key or internet connection needed after the initial model download.
+
+1. **Install Ollama** from [ollama.com](https://ollama.com) and start it:
+
+   ```bash
+   ollama serve          # starts the local server (runs in background)
+   ollama pull llama3    # download the default model (~4 GB)
+   ```
+
+2. **No Python package is needed** — podx talks to Ollama over its local REST API using the standard library.
+
+3. **Configure your config file** (`~/.podx/config.yaml`):
+
+   ```yaml
+   root_dir: ~/podx
+   llm:
+     provider: ollama
+     ollama_host: http://localhost:11434   # default; change if Ollama runs elsewhere
+     ollama_model: llama3                 # or any model you have pulled
+   ```
+
+4. **Verify it works:**
+
+   ```bash
+   echo "Alice and Bob discussed machine learning over coffee." | podx summarize -f -
+   ```
+
+#### Additional config options
 
 ```yaml
 llm:
-  provider: openai
-  model: gpt-4o-mini
-  timeout_sec: 60
-  max_output_tokens: 1024
+  timeout_sec: 60       # seconds before an LLM call times out
 summarization:
-  default_style: bullets   # bullets|abstract|chapters|notes
-  chunk_chars: 12000       # character-based chunking (no tokenizer required)
-  overlap_chars: 400
-  strategy: map_reduce     # or single, refine
+  word_count: 175       # target summary length (default ~150-200 words)
 ```
 
-Secrets are not written to disk; provide your key via `OPENAI_API_KEY`.
+#### Using summarization in the UI
 
-Why this design?
-- Key in env (not config): avoids storing secrets on disk, fits CI/containers, and matches 12‑factor practices.
-- `openai` not a hard dependency: keeps the base install light and usable offline; opt in with `pip install openai` when needed.
-
-See ADR 001 for details: `docs/adr/001-llm-key-and-optional-openai.md`.
+Select a transcribed episode, open the **Summary** tab, and click **Regenerate**. The job runs in the background and appears in the Jobs view. Once complete the summary is shown immediately and cached to `{episode_dir}/summary.txt` — re-opening the episode will not call the LLM again unless you click Regenerate a second time.
 
 ### Performance: Faster-Whisper (Intel-friendly)
 
 On Windows/Linux or Intel iGPUs, you can use Faster‑Whisper for better speed, with optional OpenVINO GPU acceleration:
 
-- Install extras: `pip install -e .[faster]` (or `pip install faster-whisper`)
+- Install extras: `pip install -e '.[faster]'` (or `pip install faster-whisper`)
 - Set config:
 
 ```yaml
@@ -143,9 +202,11 @@ The graphical interface includes an enhanced, two‑pane episode view:
     timestamp sourced from the episode index (`updated_at` falling back to
     `created_at`). A Regenerate button re‑runs transcription for the selected
     episode (same handler as the list icon).
-  - Summary tab: placeholder for future summaries with its own Regenerate
-    button. When summaries are implemented, the UI will read `summary_path` and
-    `summary_updated_at` from the episode index.
+  - Summary tab: shows the cached summary when available. Click **Regenerate**
+    to generate (or regenerate) a summary via the configured LLM provider.
+    The job appears in the Jobs view while running. The result is cached to
+    `{episode_dir}/summary.txt` and the episode index records `summary_path`
+    and `summary_updated_at`.
 
 Under the hood, the episode view consults `episodes_index.json` for each
 subscription key to:

@@ -29,6 +29,7 @@ from .search import SearchView
 from .subscriptions_view import SubscriptionListView
 from .jobs_view import JobsView
 from podx.services.jobs import JobsService
+from podx.services.summarization import SummarizationService
 
 
 
@@ -63,7 +64,8 @@ class MainWindow(QMainWindow):
         )
         self.stack.addWidget(self.subscriptions_view)
         self.ingestion_service = IngestionService(cfg, self.feeds_meta_service, self.episodes_index_service)
-        self.jobs_service = JobsService(self.ingestion_service)
+        self.summarization_service = SummarizationService(cfg, self.episodes_index_service)
+        self.jobs_service = JobsService(self.ingestion_service, summarization=self.summarization_service)
         self.podcast_view = PodcastView(self.rss_service, self.feeds_meta_service, self.episodes_index_service, self.ingestion_service, on_back=self.show_subscriptions, jobs=self.jobs_service)
         self.stack.addWidget(self.podcast_view)
         self.search_view = SearchView(

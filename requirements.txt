@@ -1,0 +1,18 @@
+# podx optional LLM provider dependencies
+# Install only the package for the provider you want to use.
+# Note: quote the argument in zsh to avoid glob expansion.
+#
+# Google Gemini (default provider — gemini-1.5-flash):
+#   pip install -e '.[gemini]'
+google-generativeai
+#
+# Anthropic Claude (claude-3-5-haiku-20241022):
+#   pip install -e '.[anthropic]'
+anthropic
+#
+# OpenAI (gpt-4o-mini):
+#   pip install -e '.[openai]'
+openai
+#
+# Ollama (local): no package required — uses urllib from the standard library.
+# Start Ollama and pull a model, e.g.: ollama pull llama3
