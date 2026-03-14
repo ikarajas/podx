@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime
 from pathlib import Path
 
 from PyQt6.QtCore import QModelIndex, QSize, Qt, QMetaObject, pyqtSignal
@@ -27,6 +28,13 @@ from ..services.feeds_meta import FeedsMetaService
 from ..services.episodes_index import EpisodesIndexService
 from ..services.ingestion import IngestionService
 from ..services.jobs import JobsService, Job
+
+
+def _fmt_ts(iso: str) -> str:
+    try:
+        return datetime.fromisoformat(iso).strftime("%b %d, %Y %H:%M")
+    except Exception:
+        return iso
 
 
 class PodcastView(QWidget):
@@ -418,6 +426,7 @@ class PodcastView(QWidget):
         self._update_summary_for_selection()
 
     def _on_selection_changed(self, current: QModelIndex, _prev: QModelIndex) -> None:
+        self.tabs.setCurrentIndex(0)
         self._update_episode_header_for_selection()
         self._update_transcript_for_selection()
         self._update_summary_for_selection()
@@ -458,22 +467,25 @@ class PodcastView(QWidget):
             except Exception:
                 text = "(Could not read transcript file)"
             ts = entry.updated_at or entry.created_at or ""
-            hdr = f"Transcribed: {ts}" if ts else "Transcribed"
+            hdr = f"Transcribed: {_fmt_ts(ts)}" if ts else "Transcribed"
             self.transcript_header_label.setText(hdr)
             self.transcript_view.setPlainText(text)
+            self.transcript_regen_btn.setText("Regenerate")
         elif entry and entry.status == "failed":
             ts = entry.updated_at or entry.created_at or ""
-            hdr = f"Transcription failed: {ts}" if ts else "Transcription failed"
+            hdr = f"Transcription failed: {_fmt_ts(ts)}" if ts else "Transcription failed"
             self.transcript_header_label.setText(hdr)
             reason = entry.error or "Unknown error"
             self.transcript_view.setPlainText(
-                f"Transcription failed.\n\nReason: {reason}\n\nClick Regenerate to try again."
+                f"Transcription failed.\n\nReason: {reason}\n\nClick Transcribe to try again."
             )
+            self.transcript_regen_btn.setText("Transcribe")
         else:
             self.transcript_header_label.setText("No transcript yet")
             self.transcript_view.setPlainText(
-                "No transcript yet. Select an episode and click the transcribe icon or Regenerate to generate it."
+                "No transcript yet. Select an episode and click the transcribe icon to generate it."
             )
+            self.transcript_regen_btn.setText("Transcribe")
 
     def _update_summary_for_selection(self) -> None:
         idx = self.list.currentIndex()
@@ -511,7 +523,7 @@ class PodcastView(QWidget):
             except Exception:
                 text = "(Could not read summary file)"
             ts = entry.summary_updated_at or ""
-            hdr = f"Summarised: {ts}" if ts else "Summarised"
+            hdr = f"Summarised: {_fmt_ts(ts)}" if ts else "Summarised"
             self.summary_header_label.setText(hdr)
             self.summary_view.setPlainText(text)
             self.summary_regen_btn.setText("Regenerate")
